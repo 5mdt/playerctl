@@ -6,7 +6,32 @@ name: CI
     branches:
       - develop
       - main
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'playerctl/**'
+              - 'data/**'
+              - 'test/**'
+              - 'scripts/**'
+              - 'meson.build'
+              - 'meson_options.txt'
+              - 'Dockerfile*'
+              - 'Makefile'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/ci.yml'
   lint:
     runs-on: ubuntu-24.04
     steps:
@@ -14,6 +39,8 @@ jobs:
       - name: Format and lint in the tooling image
         run: make format-check lint
   test:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +53,7 @@ jobs:
           path: build/coverage
   codecov:
     needs: test
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.test.result != 'skipped' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
