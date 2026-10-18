@@ -1,0 +1,30 @@
+# Correctness and static-analysis checks only; style is handled by clang-format.
+# Every finding fails the build (WarningsAsErrors), so keep the tree clean and
+# use NOLINT with a reason for the rare false positive.
+#
+# Disabled checks:
+#   bugprone-easily-swappable-parameters: flags public API signatures, which
+#     cannot change without breaking the ABI
+#   bugprone-casting-through-void: fires inside the glib G_* cast macros
+#   bugprone-multi-level-implicit-pointer-conversion: GObject out-parameter APIs
+#
+# Probed but not enabled (too noisy for GObject code, or an ABI-affecting
+# change): misc-include-cleaner, misc-unused-parameters, misc-no-recursion,
+# misc-use-internal-linkage, concurrency-mt-unsafe, cert-dcl37-c,
+# performance-no-int-to-ptr.
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-casting-through-void,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  cert-err33-c,
+  cert-dcl16-c
+WarningsAsErrors: '*'
+# Hand-written headers only: the gdbus-codegen output (playerctl-generated.h)
+# cannot be edited
+HeaderFilterRegex: 'playerctl/playerctl(-common|-formatter|-player|-player-manager|-player-name|-player-private|-version|-enum-types)?\.h$'
+CheckOptions:
+  # GObject struct tags (struct _PlayerctlPlayer) are a glib convention
+  bugprone-reserved-identifier.AllowedIdentifiers: '_Playerctl[A-Za-z]*'
