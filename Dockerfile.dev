@@ -1,0 +1,36 @@
+# Tooling image for the Makefile targets (format, lint, build); the repo is
+# bind-mounted at /src, see `make dev-image`. Tests use ./Dockerfile instead.
+ARG FEDORA_VERSION=44
+ARG UV_VERSION=0.8.0
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
+
+RUN dnf install -y --setopt=install_weak_deps=False \
+        clang-tools-extra \
+        gcc \
+        glib2-devel \
+        gobject-introspection-devel \
+        gtk-doc \
+        make \
+        meson \
+        ninja-build \
+        python3 \
+        ShellCheck \
+    && dnf clean all
+
+COPY --from=uv /uv /usr/local/bin/uv
+
+# Keep the virtualenv outside the bind-mounted repo so it never clashes with a
+# host .venv
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_PREFERENCE=only-system \
+    UV_FROZEN=1 \
+    UV_CACHE_DIR=/tmp/uv-cache
+WORKDIR /opt/project
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-install-project
+ENV PATH=/opt/venv/bin:$PATH
+
+WORKDIR /src
