@@ -112,7 +112,7 @@ class PlayerctlCli:
             args.extend(['--player', ','.join(players)])
 
         if ignored:
-            args.extend(['--ignored-players', ','.join(ignored)])
+            args.extend(['--ignore-player', ','.join(ignored)])
 
         cmd = await self.run(join(args))
         assert cmd.returncode == 0, cmd.stderr

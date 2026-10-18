@@ -64,7 +64,7 @@ docs: build ## build the API docs (HTML in build/container/doc/reference/html, o
 test-local: ## build with meson on the host (CONTAINER=0), then run the pytest suite against ./build (needs glib dev packages and dbus-run-session)
 	$(call require,uv dbus-run-session)
 	$(MAKE) build CONTAINER=0
-	PATH=$(BUILD_BIN):$$PATH dbus-run-session uv run pytest -sq
+	PATH=$(BUILD_BIN):$$PATH GI_TYPELIB_PATH=$(BUILD_BIN) LD_LIBRARY_PATH=$(BUILD_BIN) dbus-run-session uv run --group gi pytest -sq
 
 test-container: ## build the image and run the tests in a container (podman or docker)
 	$(call require,$(CONTAINER_ENGINE))

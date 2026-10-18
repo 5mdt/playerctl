@@ -132,6 +132,7 @@ class MprisPlayer(ServiceInterface):
         self.counter = 0
         self.reset()
         self.bus = bus
+        self.disconnected = False
 
     def reset(self):
         # method calls
@@ -188,6 +189,16 @@ class MprisPlayer(ServiceInterface):
         )
         await self.ping()
 
+    async def emit_properties(self, **props):
+        '''Set player attributes (snake_case) and emit PropertiesChanged.'''
+        changed = {}
+        for attr, value in props.items():
+            setattr(self, attr, value)
+            name = ''.join(part.title() for part in attr.split('_'))
+            changed[name] = value
+        self.emit_properties_changed(changed)
+        await self.ping()
+
     async def clear_metadata(self):
         self.counter += 1
         self.metadata = {
@@ -201,6 +212,9 @@ class MprisPlayer(ServiceInterface):
         await self.ping()
 
     async def disconnect(self):
+        if self.disconnected:
+            return
+        self.disconnected = True
         self.bus.disconnect()
         await self.bus.wait_for_disconnect()
 
@@ -336,3 +350,8 @@ class PlayerctldInterface(ServiceInterface):
     async def disconnect(self):
         self.bus.disconnect()
         await self.bus.wait_for_disconnect()
+
+
+def was_called(mpris, command):
+    '''Whether the mock saw the CLI command, e.g. `play-pause`.'''
+    return getattr(mpris, f'{command.replace("-", "_")}_called')

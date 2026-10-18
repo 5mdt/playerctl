@@ -15,10 +15,13 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     echo 'tzdata tzdata/Zones/Etc select UTC' | debconf-set-selections; \
     apt-get update && apt-get install -y --no-install-recommends \
     python3 \
+    python3-dev \
     ninja-build \
     build-essential \
     libglib2.0-dev \
     libgirepository1.0-dev \
+    libcairo2-dev \
+    pkg-config \
     gtk-doc-tools \
     dbus \
     && rm -rf /var/lib/apt/lists/*
@@ -26,7 +29,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_PYTHON_PREFERENCE=only-system
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen
+RUN uv sync --frozen --group gi
 ENV PATH=/app/.venv/bin:$PATH
 
 ADD . /app
