@@ -2,7 +2,7 @@
 
 <!-- Badges: project status -->
 
-[![CI](https://github.com/5mdt/playerctl/actions/workflows/ci.yml/badge.svg)](https://github.com/5mdt/playerctl/actions/workflows/ci.yml) [![Docs](https://github.com/5mdt/playerctl/actions/workflows/docs.yml/badge.svg)](https://5mdt.github.io/playerctl/) [![Latest tag](https://img.shields.io/github/v/tag/5mdt/playerctl)](https://github.com/5mdt/playerctl/tags) [![License: LGPL v3](https://img.shields.io/badge/license-LGPL--3.0-blue)](LICENSE.md)
+[![CI](https://github.com/5mdt/playerctl/actions/workflows/ci.yml/badge.svg)](https://github.com/5mdt/playerctl/actions/workflows/ci.yml) [![Docs](https://github.com/5mdt/playerctl/actions/workflows/docs.yml/badge.svg)](https://5mdt.github.io/playerctl/) [![codecov](https://codecov.io/gh/5mdt/playerctl/graph/badge.svg)](https://codecov.io/gh/5mdt/playerctl) [![Latest tag](https://img.shields.io/github/v/tag/5mdt/playerctl)](https://github.com/5mdt/playerctl/tags) [![License: LGPL v3](https://img.shields.io/badge/license-LGPL--3.0-blue)](LICENSE.md)
 
 <!-- Badges: build tooling -->
 
@@ -48,6 +48,12 @@ playerctl play-pause
 # Print "artist - title" of the current track
 playerctl metadata --format '{{ artist }} - {{ title }}'
 ```
+
+<!-- Section: test coverage -->
+
+## Test coverage
+
+[![Coverage grid](https://codecov.io/gh/5mdt/playerctl/graphs/tree.svg)](https://codecov.io/gh/5mdt/playerctl) [![Coverage trend](https://codecov.io/gh/5mdt/playerctl/graphs/commits.svg)](https://codecov.io/gh/5mdt/playerctl/commits)
 
 <!-- Section: documentation index -->
 

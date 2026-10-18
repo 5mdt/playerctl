@@ -4,6 +4,13 @@ name: Docs
   push:
     branches:
       - develop
+    paths:
+      - 'playerctl/**'
+      - 'doc/**'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - 'Dockerfile*'
+      - '.github/workflows/docs.yml'
   workflow_dispatch: null
 permissions:
   contents: read
