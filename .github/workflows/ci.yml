@@ -1,5 +1,11 @@
 ---
-
+name: CI
+'on':
+  pull_request: null
+  push:
+    branches:
+      - develop
+      - main
 jobs:
   lint:
     runs-on: ubuntu-24.04
@@ -11,12 +17,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Build image and run the test suite
-        run: make test
-name: CI
-'on':
-  pull_request: null
-  push:
-    branches:
-      - develop
-      - main
+      - name: Run the suite against an instrumented build
+        run: make coverage
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage
+          path: build/coverage
+  codecov:
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: build/coverage
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/coverage/coverage.xml
+          fail_ci_if_error: false

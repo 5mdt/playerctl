@@ -32,7 +32,7 @@ _playerctl_completions() {
 			return 0
 			;;
 		shuffle)
-			COMPREPLY=($(compgen -W "on off" -- "$cur"))
+			COMPREPLY=($(compgen -W "on off toggle" -- "$cur"))
 			return 0
 			;;
 		-p|--player=|-i|--ignore-player=)

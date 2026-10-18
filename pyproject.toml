@@ -18,6 +18,13 @@ dev = [
     "ruff",
 ]
 
+# for the libplayerctl tests (test/us11_library), which skip without it. Needs
+# cairo and python headers to build; 3.50 builds against libgirepository1.0-dev,
+# 3.52+ needs girepository-2.0.
+gi = [
+    "PyGObject<3.51",
+]
+
 [tool.pytest.ini_options]
 timeout = 5
 asyncio_mode = "auto"

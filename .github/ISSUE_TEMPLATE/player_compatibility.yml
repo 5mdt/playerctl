@@ -1,0 +1,58 @@
+---
+name: Player compatibility
+description: A media player does not work with Playerctl
+labels:
+  - player-compat
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most of these problems are a player not implementing the
+        [MPRIS specification](https://specifications.freedesktop.org/mpris-spec/latest/).
+        The output requested below shows which side is at fault.
+  - type: input
+    id: player
+    attributes:
+      label: Player name and version
+      placeholder: Spotify 1.2.40
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Playerctl version
+      description: Output of `playerctl --version`
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What does not work
+    validations:
+      required: true
+  - type: textarea
+    id: list
+    attributes:
+      label: Output of `playerctl --list-all`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: introspect
+    attributes:
+      label: MPRIS interface of the player
+      description: Output of `busctl --user introspect org.mpris.MediaPlayer2.<player> /org/mpris/MediaPlayer2`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: metadata
+    attributes:
+      label: Output of `playerctl --player=<player> metadata`
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: Re-run the failing command with `G_MESSAGES_DEBUG=playerctl` set and paste the output.
+      render: text

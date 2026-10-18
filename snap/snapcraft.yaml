@@ -16,7 +16,7 @@ confinement: strict
 parts:
   playerctl:
     plugin: meson
-    source: https://github.com/altdesktop/playerctl
+    source: https://github.com/5mdt/playerctl
     source-type: git
     meson-parameters:
       - -Dintrospection=false

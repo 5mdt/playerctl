@@ -6,7 +6,7 @@
 .Nd control media players via MPRIS
 .Sh SYNOPSIS
 .Nm
-.Op Fl aFhlV
+.Op Fl aFhlsv
 .Op Fl f Ar FORMAT
 .Op Fl i Ar NAME
 .Op Fl p Ar NAME
@@ -81,9 +81,9 @@ Multiple players can be specified in a comma-separated list.
 Defaults to the first available player.
 The name "name" matches both "name" and "name.{INSTANCE}".
 Additionally, the name "%any" matches any player.
-.It Fl s, -no-messages
+.It Fl s , -no-messages
 Silence some diagnostic and error messages.
-.It Fl V , -version
+.It Fl v , -version
 Print version number, then exit.
 .El
 .Pp
@@ -131,14 +131,13 @@ With the optional
 appended,
 increase or decrease the player's volume by
 .Ar LEVEL .
-.It Cm metadata Op Ar KEY
+.It Cm metadata Op Ar KEY ...
 Print all metadata properties for the current track set by the current
 player.
-If
+If one or more
 .Ar KEY
-is specified only the value of
-.Ar KEY
-is printed.
+are specified only the values of those keys
+are printed.
 .It Cm open Ar URI
 Open
 .Ar URI
@@ -183,11 +182,17 @@ Each command has access to the following variables:
 .Bl -tag -width Ds
 .It Va playerName
 The name of the current player.
+.It Va playerInstance
+The instance name of the current player.
 .It Va position
 The time position of the current track,
 in microseconds.
 .It Va status
 The status of the current player.
+.It Va loop
+The loop status of the current player.
+.It Va shuffle
+Whether shuffle is enabled for the current player.
 .It Va volume
 The player's volume scaled from 0.0
 .Pq 0%
@@ -240,9 +245,9 @@ Reformat the microsecond timestamp
 .Va time
 in the form
 .Ql hh:mm:ss .
-Can only be called with
+Intended for
 .Va position
-or
+and
 .Va mpris:length .
 .It Fn emoji key
 Try to convert the value for
@@ -256,7 +261,7 @@ Truncate
 .Fa str
 to a maximum of
 .Fa len
-characters, adding an ellipsis (…) if necessary.
+characters, adding an ellipsis if necessary.
 .El
 .Pp
 The template language is also able to perform basic math operations.
@@ -278,14 +283,13 @@ $ playerctl metadata --format '{{playerName}}: {{lc(status)}} '\e
 .Ed
 .Sh SEE ALSO
 .Rs
-.%T MPRIS v2 metadata guidelines
-.%D September 18, 2013
+.%T MPRIS v2 specification: Metadata Map
 .%I freedesktop.org
-.%U https://freedesktop.org/wiki/Specifications/mpris-spec/metadata/
+.%U https://specifications.freedesktop.org/mpris-spec/latest/Track_List_Interface.html#Mapping:Metadata_Map
 .Re
 .Pp
-.Lk https://github.com/altdesktop/playerctl "playerctl homepage" ,
-.Lk https://dubstepdish.com/playerctl "playerctl API documentation" ,
+.Lk https://github.com/5mdt/playerctl "playerctl homepage" ,
+.Lk https://5mdt.github.io/playerctl/ "playerctl API documentation" ,
 .Lk https://wiki.gnome.org/Projects/GObjectIntrospection/Users \
     "GObject introspection language bindings"
 .Sh AUTHORS

@@ -50,3 +50,7 @@ bash_comp = dependency('bash-completion', required: false)
 subdir('playerctl')
 subdir('data')
 subdir('doc')
+
+if get_option('tests')
+  subdir('test/c')
+endif

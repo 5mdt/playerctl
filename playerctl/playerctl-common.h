@@ -27,6 +27,11 @@
 
 #define MPRIS_PREFIX "org.mpris.MediaPlayer2."
 
+#define PLAYERCTLD_INTERFACE "org._5mdt.playerctld"
+/* Deprecated: served alongside PLAYERCTLD_INTERFACE for compatibility. Remove in the next major
+ * version. */
+#define PLAYERCTLD_INTERFACE_LEGACY "com.github.altdesktop.playerctld"
+
 gboolean pctl_parse_playback_status(const gchar *playback_status, PlayerctlPlaybackStatus *status);
 
 const gchar *pctl_playback_status_to_string(PlayerctlPlaybackStatus status);

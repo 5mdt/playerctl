@@ -1,7 +1,28 @@
+/*
+ * This file is part of playerctl.
+ *
+ * playerctl is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Lesser General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * playerctl is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with playerctl If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Copyright © 2014, Tony Crisci and contributors
+ */
+
 #include <assert.h>
 #include <gio/gio.h>
 #include <stdbool.h>
 #include <stdio.h>
+
+#include "playerctl-common.h"
 
 #define MPRIS_PATH "/org/mpris/MediaPlayer2"
 #define DBUS_NAME "org.freedesktop.DBus"
@@ -12,7 +33,6 @@
 #define PLAYLISTS_INTERFACE "org.mpris.MediaPlayer2.Playlists"
 #define TRACKLIST_INTERFACE "org.mpris.MediaPlayer2.TrackList"
 #define PROPERTIES_INTERFACE "org.freedesktop.DBus.Properties"
-#define PLAYERCTLD_INTERFACE "com.github.altdesktop.playerctld"
 
 /**
  * A representation of an MPRIS player and its cached MPRIS properties
@@ -44,6 +64,7 @@ struct PlayerctldContext {
     GDBusInterfaceInfo *playlists_interface_info;
     GDBusInterfaceInfo *tracklist_interface_info;
     GDBusInterfaceInfo *playerctld_interface_info;
+    GDBusInterfaceInfo *playerctld_legacy_interface_info;
     GQueue *players;
     GQueue *pending_players;
     gint return_code;
@@ -252,18 +273,23 @@ static GVariant *context_player_names_to_gvariant(struct PlayerctldContext *ctx)
     return g_variant_builder_end(&builder);
 }
 
+static const char *const playerctld_interfaces[] = {PLAYERCTLD_INTERFACE,
+                                                    PLAYERCTLD_INTERFACE_LEGACY};
+
 static void context_emit_active_player_changed(struct PlayerctldContext *ctx, GError **error) {
     GError *tmp_error = NULL;
     g_return_if_fail(error == NULL || *error == NULL);
 
     struct Player *player = g_queue_peek_head(ctx->players);
 
-    g_dbus_connection_emit_signal(
-        ctx->connection, NULL, MPRIS_PATH, PLAYERCTLD_INTERFACE, "ActivePlayerChangeBegin",
-        g_variant_new("(s)", (player != NULL ? player->well_known : "")), &tmp_error);
-    if (tmp_error != NULL) {
-        g_propagate_error(error, tmp_error);
-        return;
+    for (gsize i = 0; i < G_N_ELEMENTS(playerctld_interfaces); i++) {
+        g_dbus_connection_emit_signal(
+            ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i], "ActivePlayerChangeBegin",
+            g_variant_new("(s)", (player != NULL ? player->well_known : "")), &tmp_error);
+        if (tmp_error != NULL) {
+            g_propagate_error(error, tmp_error);
+            return;
+        }
     }
 
     if (player != NULL) {
@@ -413,28 +439,32 @@ static void context_emit_active_player_changed(struct PlayerctldContext *ctx, GE
         }
     }
 
-    GVariantDict dict;
-    g_variant_dict_init(&dict, NULL);
-    g_variant_dict_insert_value(&dict, "PlayerNames", context_player_names_to_gvariant(ctx));
+    for (gsize i = 0; i < G_N_ELEMENTS(playerctld_interfaces); i++) {
+        GVariantDict dict;
+        g_variant_dict_init(&dict, NULL);
+        g_variant_dict_insert_value(&dict, "PlayerNames", context_player_names_to_gvariant(ctx));
 
-    GVariant *playerctld_children[3] = {
-        g_variant_new_string(PLAYERCTLD_INTERFACE),
-        g_variant_dict_end(&dict),
-        g_variant_new_array(G_VARIANT_TYPE_STRING, NULL, 0),
-    };
-    GVariant *playerctld_properties = g_variant_new_tuple(playerctld_children, 3);
-    g_dbus_connection_emit_signal(ctx->connection, NULL, MPRIS_PATH, PROPERTIES_INTERFACE,
-                                  "PropertiesChanged", playerctld_properties, &tmp_error);
-    if (tmp_error != NULL) {
-        g_propagate_error(error, tmp_error);
-        return;
+        GVariant *playerctld_children[3] = {
+            g_variant_new_string(playerctld_interfaces[i]),
+            g_variant_dict_end(&dict),
+            g_variant_new_array(G_VARIANT_TYPE_STRING, NULL, 0),
+        };
+        GVariant *playerctld_properties = g_variant_new_tuple(playerctld_children, 3);
+        g_dbus_connection_emit_signal(ctx->connection, NULL, MPRIS_PATH, PROPERTIES_INTERFACE,
+                                      "PropertiesChanged", playerctld_properties, &tmp_error);
+        if (tmp_error != NULL) {
+            g_propagate_error(error, tmp_error);
+            return;
+        }
     }
-    g_dbus_connection_emit_signal(
-        ctx->connection, NULL, MPRIS_PATH, PLAYERCTLD_INTERFACE, "ActivePlayerChangeEnd",
-        g_variant_new("(s)", (player != NULL ? player->well_known : "")), &tmp_error);
-    if (tmp_error != NULL) {
-        g_propagate_error(error, tmp_error);
-        return;
+    for (gsize i = 0; i < G_N_ELEMENTS(playerctld_interfaces); i++) {
+        g_dbus_connection_emit_signal(
+            ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i], "ActivePlayerChangeEnd",
+            g_variant_new("(s)", (player != NULL ? player->well_known : "")), &tmp_error);
+        if (tmp_error != NULL) {
+            g_propagate_error(error, tmp_error);
+            return;
+        }
     }
 }
 
@@ -556,24 +586,28 @@ static struct Player *context_unshift_active_player(struct PlayerctldContext *ct
     return current;
 }
 
-static const char *playerctld_introspection_xml =
-    "<node>\n"
-    "  <interface name=\"com.github.altdesktop.playerctld\">\n"
-    "    <method name=\"Shift\">\n"
-    "        <arg name=\"Player\" type=\"s\" direction=\"out\"/>\n"
-    "    </method>\n"
-    "    <method name=\"Unshift\">\n"
-    "        <arg name=\"Player\" type=\"s\" direction=\"out\"/>\n"
-    "    </method>\n"
-    "    <property name=\"PlayerNames\" type=\"as\" access=\"read\"/>\n"
-    "    <signal name=\"ActivePlayerChangeBegin\">\n"
-    "        <arg name=\"Name\" type=\"s\"/>\n"
-    "    </signal>\n"
-    "    <signal name=\"ActivePlayerChangeEnd\">\n"
-    "        <arg name=\"Name\" type=\"s\"/>\n"
-    "    </signal>\n"
+#define LEGACY_DEPRECATED_ANNOTATION \
+    "    <annotation name=\"org.freedesktop.DBus.Deprecated\" value=\"true\"/>\n"
+
+#define PLAYERCTLD_INTERFACE_XML(name, annotation)                                 \
+    "  <interface name=\"" name "\">\n" annotation "    <method name=\"Shift\">\n" \
+    "        <arg name=\"Player\" type=\"s\" direction=\"out\"/>\n"                \
+    "    </method>\n"                                                              \
+    "    <method name=\"Unshift\">\n"                                              \
+    "        <arg name=\"Player\" type=\"s\" direction=\"out\"/>\n"                \
+    "    </method>\n"                                                              \
+    "    <property name=\"PlayerNames\" type=\"as\" access=\"read\"/>\n"           \
+    "    <signal name=\"ActivePlayerChangeBegin\">\n"                              \
+    "        <arg name=\"Name\" type=\"s\"/>\n"                                    \
+    "    </signal>\n"                                                              \
+    "    <signal name=\"ActivePlayerChangeEnd\">\n"                                \
+    "        <arg name=\"Name\" type=\"s\"/>\n"                                    \
+    "    </signal>\n"                                                              \
     "  </interface>\n"
-    "</node>\n";
+
+static const char *playerctld_introspection_xml =
+    "<node>\n" PLAYERCTLD_INTERFACE_XML(PLAYERCTLD_INTERFACE, "") PLAYERCTLD_INTERFACE_XML(
+        PLAYERCTLD_INTERFACE_LEGACY, LEGACY_DEPRECATED_ANNOTATION) "</node>\n";
 
 static const char *mpris_introspection_xml =
     "<node>\n"
@@ -775,9 +809,10 @@ static void player_method_call_proxy_callback(GDBusConnection *connection, const
     struct Player *active_player = context_get_active_player(ctx);
     if (active_player == NULL) {
         g_debug("no active player, returning error");
-        g_dbus_method_invocation_return_dbus_error(
-            invocation, "com.github.altdesktop.playerctld.NoActivePlayer",
-            "No player is being controlled by playerctld");
+        // no playerctld interface is involved here, so keep the legacy name existing clients match
+        g_dbus_method_invocation_return_dbus_error(invocation,
+                                                   PLAYERCTLD_INTERFACE_LEGACY ".NoActivePlayer",
+                                                   "No player is being controlled by playerctld");
         return;
     }
 
@@ -803,7 +838,21 @@ static void player_method_call_proxy_callback(GDBusConnection *connection, const
 }
 
 /**
- * Implement com.github.altdesktop.playerctld methods
+ * Tell the log, once per daemon run, that a client still uses the deprecated interface name
+ */
+static void warn_if_legacy_interface(const char *interface_name, const char *sender) {
+    static gboolean warned = FALSE;
+    if (warned || g_strcmp0(interface_name, PLAYERCTLD_INTERFACE_LEGACY) != 0) {
+        return;
+    }
+    warned = TRUE;
+    g_warning("client %s uses the deprecated D-Bus interface '%s', which will be removed in the "
+              "next major version. Use '%s' instead",
+              sender, PLAYERCTLD_INTERFACE_LEGACY, PLAYERCTLD_INTERFACE);
+}
+
+/**
+ * Implement the playerctld methods (on both the current and legacy interface)
  */
 static void playerctld_method_call_func(GDBusConnection *connection, const char *sender,
                                         const char *object_path, const char *interface_name,
@@ -814,10 +863,13 @@ static void playerctld_method_call_func(GDBusConnection *connection, const char 
 
     struct PlayerctldContext *ctx = user_data;
     struct Player *active_player;
+    warn_if_legacy_interface(interface_name, sender);
+    g_autofree gchar *no_active_player_error = g_strdup_printf("%s.NoActivePlayer", interface_name);
+    g_autofree gchar *invalid_method_error = g_strdup_printf("%s.InvalidMethod", interface_name);
 
     if (strcmp(method_name, "Shift") == 0) {
         /**
-         * com.github.altdesktop.playerctld.Shift
+         * playerctld.Shift
          * Move the active player to the back of the queue,
          * return the new active player
          */
@@ -827,12 +879,11 @@ static void playerctld_method_call_func(GDBusConnection *connection, const char 
         } else {
             g_debug("no active player, returning error");
             g_dbus_method_invocation_return_dbus_error(
-                invocation, "com.github.altdesktop.playerctld.NoActivePlayer",
-                "No player is being controlled by playerctld");
+                invocation, no_active_player_error, "No player is being controlled by playerctld");
         }
     } else if (strcmp(method_name, "Unshift") == 0) {
         /**
-         * com.github.altdesktop.playerctld.Unshift
+         * playerctld.Unshift
          * Set the least recently active player to active,
          * return that player. Inverse of Shift.
          */
@@ -842,27 +893,26 @@ static void playerctld_method_call_func(GDBusConnection *connection, const char 
         } else {
             g_debug("no active player, returning error");
             g_dbus_method_invocation_return_dbus_error(
-                invocation, "com.github.altdesktop.playerctld.NoActivePlayer",
-                "No player is being controlled by playerctld");
+                invocation, no_active_player_error, "No player is being controlled by playerctld");
         }
     } else {
         /**
          * Fail on unknown methods.
          */
-        g_dbus_method_invocation_return_dbus_error(invocation,
-                                                   "com.github.altdesktop.playerctld.InvalidMethod",
+        g_dbus_method_invocation_return_dbus_error(invocation, invalid_method_error,
                                                    "This method is not valid");
     }
 }
 
 /**
- * Property getter for com.github.altdesktop.playerctld
+ * Property getter for the playerctld interfaces
  */
 static GVariant *playerctld_get_property_func(GDBusConnection *connection, const gchar *sender,
                                               const gchar *object_path, const gchar *interface_name,
                                               const gchar *property_name, GError **error,
                                               gpointer user_data) {
     struct PlayerctldContext *ctx = user_data;
+    warn_if_legacy_interface(interface_name, sender);
     if (g_strcmp0(property_name, "PlayerNames") != 0) {
         // Fail on unknown properties.
         // FIXME: Should return a DBus error and not crash
@@ -879,14 +929,14 @@ static GVariant *playerctld_get_property_func(GDBusConnection *connection, const
 static GDBusInterfaceVTable vtable_mpris = {player_method_call_proxy_callback, NULL, NULL, {0}};
 
 /**
- * Location of implementation of com.github.altdesktop.playerctld interface
+ * Location of implementation of the playerctld interfaces
  */
 static GDBusInterfaceVTable vtable_playerctld = {
     playerctld_method_call_func, playerctld_get_property_func, NULL, {0}};
 
 /**
  * Register callbacks to implement the interfaces we're supposed to
- * That is to say, the four MPRIS interfaces as well as com.github.altdesktop.playerctld
+ * That is to say, the four MPRIS interfaces as well as the playerctld interfaces
  */
 static void on_bus_acquired(GDBusConnection *connection, const char *name, gpointer user_data) {
     GError *error = NULL;
@@ -921,6 +971,13 @@ static void on_bus_acquired(GDBusConnection *connection, const char *name, gpoin
     }
 
     g_dbus_connection_register_object(connection, MPRIS_PATH, ctx->playerctld_interface_info,
+                                      &vtable_playerctld, user_data, NULL, &error);
+    if (error != NULL) {
+        g_warning("%s", error->message);
+        g_clear_error(&error);
+    }
+
+    g_dbus_connection_register_object(connection, MPRIS_PATH, ctx->playerctld_legacy_interface_info,
                                       &vtable_playerctld, user_data, NULL, &error);
     if (error != NULL) {
         g_warning("%s", error->message);
@@ -1220,32 +1277,35 @@ static gboolean parse_setup_options(int argc, char **argv, GError **error) {
     return success;
 }
 
-int playercmd_shift(GDBusConnection *connection) {
+static int playercmd_call(GDBusConnection *connection, const char *method) {
     GError *error = NULL;
 
-    g_dbus_connection_call_sync(connection, "org.mpris.MediaPlayer2.playerctld", MPRIS_PATH,
-                                PLAYERCTLD_INTERFACE, "Shift", NULL, NULL,
-                                G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
+    for (gsize i = 0; i < G_N_ELEMENTS(playerctld_interfaces); i++) {
+        g_clear_error(&error);
+        g_dbus_connection_call_sync(connection, "org.mpris.MediaPlayer2.playerctld", MPRIS_PATH,
+                                    playerctld_interfaces[i], method, NULL, NULL,
+                                    G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
+        // an older playerctld only serves the legacy interface
+        if (error == NULL || !g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_UNKNOWN_METHOD)) {
+            break;
+        }
+    }
     g_object_unref(connection);
     if (error != NULL) {
-        g_printerr("Cannot shift: %s\n", error->message);
+        g_autofree gchar *verb = g_ascii_strdown(method, -1);
+        g_printerr("Cannot %s: %s\n", verb, error->message);
+        g_error_free(error);
         return 1;
     }
     return 0;
 }
 
-int playercmd_unshift(GDBusConnection *connection) {
-    GError *error = NULL;
+int playercmd_shift(GDBusConnection *connection) {
+    return playercmd_call(connection, "Shift");
+}
 
-    g_dbus_connection_call_sync(connection, "org.mpris.MediaPlayer2.playerctld", MPRIS_PATH,
-                                PLAYERCTLD_INTERFACE, "Unshift", NULL, NULL,
-                                G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-    g_object_unref(connection);
-    if (error != NULL) {
-        g_printerr("Cannot unshift: %s\n", error->message);
-        return 1;
-    }
-    return 0;
+int playercmd_unshift(GDBusConnection *connection) {
+    return playercmd_call(connection, "Unshift");
 }
 
 enum activation_result {
@@ -1395,8 +1455,10 @@ int main(int argc, char *argv[]) {
     if (ctx.tracklist_interface_info == NULL) {
         g_error("Missing introspection data for MPRIS tracklist interface");
     }
-    ctx.playerctld_interface_info = g_dbus_node_info_lookup_interface(
-        playerctld_introspection_data, "com.github.altdesktop.playerctld");
+    ctx.playerctld_interface_info =
+        g_dbus_node_info_lookup_interface(playerctld_introspection_data, PLAYERCTLD_INTERFACE);
+    ctx.playerctld_legacy_interface_info = g_dbus_node_info_lookup_interface(
+        playerctld_introspection_data, PLAYERCTLD_INTERFACE_LEGACY);
 
     // Get all names of players (names that start with "org.mpris.MediaPlayer2.")
     // then fetch their properties on all supported interfaces
