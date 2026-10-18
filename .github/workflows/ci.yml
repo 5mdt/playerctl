@@ -1,0 +1,22 @@
+---
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Format and lint in the tooling image
+        run: make format-check lint
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image and run the test suite
+        run: make test
+name: CI
+'on':
+  pull_request: null
+  push:
+    branches:
+      - develop
+      - main

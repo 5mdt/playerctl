@@ -1,20 +1,29 @@
-import pytest
 import asyncio
+
+import pytest
+from .playerctl import stop_all
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_processes():
+    yield
+    await stop_all()
 
 
 @pytest.fixture()
-async def bus_address(scope='class'):
-    proc = await asyncio.create_subprocess_shell(
-        'dbus-launch', stdout=asyncio.subprocess.PIPE)
-    stdout, __ = await proc.communicate()
-    await proc.wait()
-    assert proc.returncode == 0
-    address = None
-    for line in stdout.decode().split():
-        if line.startswith('DBUS_SESSION_BUS_ADDRESS='):
-            address = line.split('=', 1)[1].strip()
-            break
-
+async def bus_address():
+    proc = await asyncio.create_subprocess_exec(
+        'dbus-daemon',
+        '--session',
+        '--nofork',
+        '--print-address=1',
+        stdout=asyncio.subprocess.PIPE,
+    )
+    address = (await proc.stdout.readline()).decode().strip()
     assert address
 
-    return address
+    yield address
+
+    if proc.returncode is None:
+        proc.terminate()
+    await proc.wait()

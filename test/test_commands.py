@@ -23,8 +23,9 @@ async def test_commands(bus_address):
 
     playerctl = PlayerctlCli(bus_address)
 
-    results = await asyncio.gather(*(playerctl.run(f'-p commands {cmd}')
-                                     for cmd in commands + setters))
+    results = await asyncio.gather(
+        *(playerctl.run(f'-p commands {cmd}') for cmd in commands + setters)
+    )
 
     for result in results:
         assert result.returncode == 0, result.stderr
