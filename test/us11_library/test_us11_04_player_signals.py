@@ -91,3 +91,67 @@ async def test_exit_signal(gi_start, mpris_factory):
     await mpris.disconnect()
 
     assert await proc.queue.get() == 'exit'
+
+
+DETAILED = """
+    player = Playerctl.Player.new('sig')
+    player.connect('playback-status::playing', lambda p, s: out('playing', s.value_nick))
+    player.connect('playback-status::paused', lambda p, s: out('paused', s.value_nick))
+    player.connect('loop-status::track', lambda p, s: out('track', s.value_nick))
+    player.connect('loop-status::none', lambda p, s: out('none', s.value_nick))
+    run_loop()
+"""
+
+
+async def test_detailed_playback_status_signal(gi_start, mpris_factory):
+    [mpris] = await mpris_factory('sig')
+    mpris.playback_status = 'Stopped'
+    proc = await gi_start(DETAILED)
+
+    await mpris.emit_properties(playback_status='Playing')
+    assert await proc.queue.get() == 'playing Playing'
+    await mpris.emit_properties(playback_status='Paused')
+    assert await proc.queue.get() == 'paused Paused'
+
+
+async def test_detailed_loop_status_signal(gi_start, mpris_factory):
+    [mpris] = await mpris_factory('sig')
+    proc = await gi_start(DETAILED)
+
+    await mpris.emit_properties(loop_status='Track')
+    assert await proc.queue.get() == 'track Track'
+    await mpris.emit_properties(loop_status='None')
+    assert await proc.queue.get() == 'none None'
+
+
+async def test_unknown_status_strings_emit_nothing(gi_start, mpris_factory):
+    [mpris] = await mpris_factory('sig')
+    mpris.playback_status = 'Stopped'
+    proc = await gi_start(CONNECT)
+
+    await mpris.emit_properties(playback_status='Bogus')
+    await mpris.emit_properties(loop_status='Bogus')
+    await mpris.emit_properties(loop_status='Track')
+    await mpris.emit_properties(playback_status='Paused')
+
+    lines = [await proc.queue.get() for _ in range(3)]
+    assert sorted(lines) == sorted(
+        ['loop-status Track', 'pause', 'playback-status Paused']
+    )
+
+
+async def test_status_is_fetched_when_track_change_omits_it(
+    gi_start, mpris_factory
+):
+    [mpris] = await mpris_factory('sig')
+    mpris.playback_status = 'Paused'
+    proc = await gi_start(CONNECT)
+
+    # the player started playing but only announces the new track
+    mpris.playback_status = 'Playing'
+    await mpris.set_artist_title('Artist', 'Title')
+
+    lines = [await proc.queue.get() for _ in range(3)]
+    assert sorted(lines) == sorted(
+        ['metadata Artist Title', 'play', 'playback-status Playing']
+    )

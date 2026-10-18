@@ -41,11 +41,12 @@ async def mpris_factory(bus_address):
     '''Create mock MPRIS players that are disconnected on teardown.'''
     created = []
 
-    async def make(*names, system=False):
+    async def make(*names, system=False, **kwargs):
         players = await setup_mpris(
             *names,
             bus_address=None if system else bus_address,
             system=system,
+            **kwargs,
         )
         created.extend(players)
         return players

@@ -87,3 +87,21 @@ async def check_math(playerctl, expr, volume=VOLUME):
     assert float(cmd.stdout) == eval(
         expr, {'volume': volume, 'default': default_shim}
     ), expr
+
+
+INT64_MAX = 2**63 - 1
+INT64_MIN = -(2**63)
+
+# Extra numeric metadata keys for arithmetic edge cases (type in the name).
+NUMERIC_METADATA = {
+    'xesam:i7': ('x', 7),
+    'xesam:i2': ('x', 2),
+    'xesam:i0': ('x', 0),
+    'xesam:d0': ('d', 0.0),
+    'xesam:d2': ('d', 2.5),
+    'xesam:imax': ('x', INT64_MAX),
+    'xesam:imin': ('x', INT64_MIN),
+    'xesam:u5': ('t', 5),
+    'xesam:u0': ('t', 0),
+    'xesam:flag': ('b', True),
+}

@@ -1,4 +1,4 @@
-.PHONY: contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container docker-test all \
+.PHONY: contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
 	lint lint-py lint-c lint-sh
@@ -71,7 +71,18 @@ test-container: ## build the image and run the tests in a container (podman or d
 	$(CONTAINER_ENGINE) build -t playerctl-test .
 	$(CONTAINER_ENGINE) run --rm $(if $(shell [ -t 0 ] && echo tty),-it) playerctl-test
 
+test-c: ## build and run the C unit tests (test/c) with meson test in the test image
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) build -t playerctl-test .
+	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/src:Z" -w /src playerctl-test bash -c "meson setup /tmp/build-c -Dtests=true >/dev/null && ninja -C /tmp/build-c >/dev/null && meson test -C /tmp/build-c --print-errorlogs"
+
 test: test-container ## run the tests in a container (alias for test-container)
+
+coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) build -t playerctl-test .
+	mkdir -p build/coverage
+	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/build/coverage:/out:Z" playerctl-test bash scripts/coverage.sh
 
 # docker-test kept as an alias for test-container
 docker-test: test-container ## alias for test-container

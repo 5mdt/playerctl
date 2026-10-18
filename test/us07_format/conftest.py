@@ -7,6 +7,7 @@ from ..helpers.format import (
     PLAYER_INSTANCE,
     TITLE,
     VOLUME,
+    NUMERIC_METADATA,
     MetadataTest,
 )
 
@@ -29,3 +30,14 @@ async def format_player(mpris_factory):
 @pytest.fixture()
 def metadata_test(playerctl, format_player):
     return MetadataTest(playerctl)
+
+
+@pytest.fixture()
+async def numeric_player(format_player):
+    '''The format player plus int64/uint64/double/boolean metadata keys.'''
+    metadata = dict(format_player.metadata)
+    for key, (sig, value) in NUMERIC_METADATA.items():
+        metadata[key] = Variant(sig, value)
+    format_player.metadata = metadata
+    await format_player.ping()
+    return format_player

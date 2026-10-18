@@ -35,3 +35,73 @@ async def test_create_player(expr, expected, gi_run, mpris_factory):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == expected.split()
+
+
+async def test_unknown_player_is_not_found(gi_run, mpris_factory):
+    await mpris_factory('other')
+
+    result = await gi_run("""
+        try:
+            Playerctl.Player.new('nonexistent')
+        except GLib.Error as e:
+            out('error', e.message)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ['error Player not found']
+
+
+async def test_no_name_connects_to_first_available(gi_run, mpris_factory):
+    await mpris_factory('only')
+
+    result = await gi_run("""
+        out(Playerctl.Player.new(None).props.player_name)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ['only']
+
+
+async def test_name_matches_an_instance(gi_run, mpris_factory):
+    await mpris_factory('create.instance123')
+
+    result = await gi_run("""
+        player = Playerctl.Player.new('create')
+        out(player.props.player_name, player.props.source.value_nick)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ['create', 'dbus-session']
+
+
+async def test_create_for_system_source(gi_run, mpris_factory):
+    await mpris_factory('sysplayer', system=True)
+
+    result = await gi_run("""
+        player = Playerctl.Player.new_for_source(
+            'sysplayer', Playerctl.Source.DBUS_SYSTEM)
+        out(player.props.player_name, player.props.source.value_nick)
+        try:
+            Playerctl.Player.new_for_source(
+                'sysplayer', Playerctl.Source.DBUS_SESSION)
+        except GLib.Error as e:
+            out('error', e.message)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        'sysplayer dbus-system',
+        'error Player not found',
+    ]
+
+
+async def test_new_without_source_finds_system_player(gi_run, mpris_factory):
+    await mpris_factory('sysplayer', system=True)
+
+    result = await gi_run("""
+        player = Playerctl.Player.new('sysplayer')
+        out(player.props.source.value_nick)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ['dbus-system']

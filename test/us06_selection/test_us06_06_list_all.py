@@ -49,3 +49,21 @@ async def test_list_all_through_playerctld(bus_address, playerctl, interface):
         assert result == expected, (selection, players, expected)
 
     await playerctld.disconnect()
+
+
+@pytest.mark.parametrize('flag', ['-s', '--no-messages'])
+async def test_list_all_without_players_and_no_messages(flag, playerctl):
+    result = await playerctl.run(f'--list-all {flag}')
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ''
+    assert result.stderr == ''
+
+
+async def test_list_all_short_flag(playerctl, mpris_factory):
+    await mpris_factory('basics1')
+
+    result = await playerctl.run('-l')
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ['basics1']

@@ -26,6 +26,11 @@ def run_loop(timeout_ms=4000):
 '''
 
 
+def compose(*parts):
+    '''Join script fragments written with their own indentation.'''
+    return '\n'.join(textwrap.dedent(part) for part in parts)
+
+
 def _script(body):
     return PRELUDE + textwrap.dedent(body)
 
@@ -59,3 +64,39 @@ async def start_gi(bus_address, body):
     line = await asyncio.wait_for(proc.queue.get(), 4)
     assert line == 'ready', line
     return proc
+
+
+# set_sort_func() takes a C callback, which the introspection bindings cannot
+# pass, so scripts call it through ctypes. `set_sort_func(manager, key)` keeps
+# the manager's players ordered by `key(player_instance)`.
+SORT_FUNC = '''
+import ctypes
+
+_pctl = ctypes.CDLL('libplayerctl.so.2')
+_gobject = ctypes.CDLL('libgobject-2.0.so.0')
+_compare_type = ctypes.CFUNCTYPE(
+    ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+_callbacks = []
+
+
+def _instance(pointer):
+    value = ctypes.c_char_p()
+    _gobject.g_object_get(
+        ctypes.c_void_p(pointer), b'player-instance', ctypes.byref(value), None)
+    return value.value.decode()
+
+
+def set_sort_func(manager, key):
+    def compare(a, b, data):
+        ka, kb = key(_instance(a)), key(_instance(b))
+        return (ka > kb) - (ka < kb)
+
+    callback = _compare_type(compare)
+    _callbacks.append(callback)
+    ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.c_void_p
+    ctypes.pythonapi.PyCapsule_GetPointer.argtypes = [
+        ctypes.py_object, ctypes.c_char_p]
+    pointer = ctypes.pythonapi.PyCapsule_GetPointer(manager.__gpointer__, None)
+    _pctl.playerctl_player_manager_set_sort_func(
+        ctypes.c_void_p(pointer), callback, None, None)
+'''

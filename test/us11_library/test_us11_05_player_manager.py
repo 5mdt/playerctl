@@ -15,6 +15,20 @@ MANAGE = """
     run_loop()
 """
 
+MANAGE_SOURCE = """
+    manager = Playerctl.PlayerManager()
+
+    def on_name_appeared(manager, name):
+        out('name-appeared', name.instance, name.source.value_nick)
+        manager.manage_player(Playerctl.Player.new_from_name(name))
+
+    manager.connect('name-appeared', on_name_appeared)
+    manager.connect('name-vanished', lambda m, n: out('name-vanished', n.instance, n.source.value_nick))
+    manager.connect('player-appeared', lambda m, p: out('player-appeared', p.props.player_instance))
+    manager.connect('player-vanished', lambda m, p: out('player-vanished', p.props.player_instance))
+    run_loop()
+"""
+
 
 async def test_appeared_and_vanished_signals(gi_start, mpris_factory):
     proc = await gi_start(MANAGE)
@@ -48,3 +62,55 @@ async def test_move_player_to_top(gi_run, mpris_factory):
     before, after = (line.split() for line in result.stdout.splitlines())
     assert sorted(before) == ['mgr_a', 'mgr_b']
     assert after == [before[-1], before[0]]
+
+
+async def test_player_names_property(gi_run, mpris_factory):
+    await mpris_factory('mgr_b', 'mgr_a')
+    await mpris_factory('mgr_sys', system=True)
+
+    result = await gi_run("""
+        manager = Playerctl.PlayerManager()
+        for n in manager.props.player_names:
+            out(n.instance, n.source.value_nick)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        'mgr_a dbus-session',
+        'mgr_b dbus-session',
+        'mgr_sys dbus-system',
+    ]
+
+
+async def test_manage_player_twice_keeps_one_entry(gi_run, mpris_factory):
+    await mpris_factory('mgr_a')
+
+    result = await gi_run("""
+        manager = Playerctl.PlayerManager()
+        manager.connect('player-appeared', lambda m, p: out('player-appeared'))
+        player = Playerctl.Player.new('mgr_a')
+        manager.manage_player(player)
+        manager.manage_player(player)
+        out(len(manager.props.players))
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ['player-appeared', '1']
+
+
+async def test_system_bus_players_appear_and_vanish(gi_start, mpris_factory):
+    proc = await gi_start(MANAGE_SOURCE)
+
+    [mpris] = await mpris_factory('mgr_sys', system=True)
+    lines = [await proc.queue.get() for _ in range(2)]
+    assert sorted(lines) == [
+        'name-appeared mgr_sys dbus-system',
+        'player-appeared mgr_sys',
+    ]
+
+    await mpris.disconnect()
+    lines = [await proc.queue.get() for _ in range(2)]
+    assert sorted(lines) == [
+        'name-vanished mgr_sys dbus-system',
+        'player-vanished mgr_sys',
+    ]

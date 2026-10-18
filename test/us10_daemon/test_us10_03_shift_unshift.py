@@ -1,7 +1,16 @@
 """US-10.3: As a user, I want `playerctld shift` / `unshift` to cycle the
 active player, with exit code 1 when there is none."""
 
-from ..helpers.daemon import playerctld_shift
+import pytest
+from dbus_next import MessageType
+
+from ..helpers.daemon import (
+    SignalListener,
+    playerctld_call,
+    playerctld_cli,
+    playerctld_shift,
+)
+from ..helpers.mpris import PLAYERCTLD_INTERFACE
 from ..helpers.follow import follow_cmd
 
 
@@ -72,3 +81,38 @@ async def test_shift_without_players_fails(
     await mpris1.disconnect()
     code = await playerctld_shift(bus_address, reverse=True)
     assert code == 1
+
+
+@pytest.mark.parametrize('member', ['Shift', 'Unshift'])
+async def test_single_player_stays_active_without_signals(
+    member, bus_address, playerctld, daemon_bus, mpris_factory
+):
+    [mpris] = await mpris_factory('player1')
+    await mpris.set_artist_title('artist1', 'title1')
+    listener = await SignalListener.start(bus_address)
+
+    reply = await playerctld_call(daemon_bus, PLAYERCTLD_INTERFACE, member)
+
+    assert reply.message_type == MessageType.METHOD_RETURN, reply.body
+    assert reply.body == ['org.mpris.MediaPlayer2.player1']
+    assert listener.queue.empty(), listener.queue.get_nowait()
+    await listener.close()
+
+
+@pytest.mark.parametrize('command', ['shift', 'unshift'])
+async def test_failure_message_without_players(
+    command, bus_address, playerctld
+):
+    code, _, stderr = await playerctld_cli(bus_address, command)
+
+    assert code == 1
+    assert stderr.startswith(f'Cannot {command}:'), stderr
+    assert 'No player is being controlled by playerctld' in stderr
+
+
+@pytest.mark.parametrize('command', ['shift', 'unshift'])
+async def test_failure_message_without_daemon(command, bus_address):
+    code, _, stderr = await playerctld_cli(bus_address, command)
+
+    assert code == 1
+    assert stderr.startswith(f'Cannot {command}:'), stderr
