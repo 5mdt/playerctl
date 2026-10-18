@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with playerctl If not, see <http://www.gnu.org/licenses/>.
  *
- * Copyright © 2014, Tony Crisci
+ * Copyright © 2014, Tony Crisci and contributors
  */
 
 #ifndef __PLAYERCTL_PLAYER_MANAGER_H__

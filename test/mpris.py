@@ -16,6 +16,10 @@ from dbus_next.aio import MessageBus
 
 import asyncio
 
+PLAYERCTLD_INTERFACE = 'org._5mdt.playerctld'
+# deprecated, still served for compatibility until the next major version
+PLAYERCTLD_INTERFACE_LEGACY = 'com.github.altdesktop.playerctld'
+
 
 async def _bus_call(bus, member, signature='', body=()):
     reply = await bus.call(
@@ -80,9 +84,9 @@ async def setup_mpris(*names, bus_address=None, system=False):
     return players
 
 
-async def setup_playerctld(bus_address=None):
+async def setup_playerctld(bus_address=None, interface=PLAYERCTLD_INTERFACE):
     bus = await MessageBus(bus_address=bus_address).connect()
-    playerctld = PlayerctldInterface(bus)
+    playerctld = PlayerctldInterface(bus, interface)
     bus.export('/org/mpris/MediaPlayer2', playerctld)
     reply = await bus.request_name('org.mpris.MediaPlayer2.playerctld')
     assert reply == RequestNameReply.PRIMARY_OWNER
@@ -320,8 +324,8 @@ class MprisPlayer(ServiceInterface):
 class PlayerctldInterface(ServiceInterface):
     '''just enough of playerctld for testing'''
 
-    def __init__(self, bus):
-        super().__init__('com.github.altdesktop.playerctld')
+    def __init__(self, bus, interface=PLAYERCTLD_INTERFACE):
+        super().__init__(interface)
         self.bus = bus
         self.player_names = []
 

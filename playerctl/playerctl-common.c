@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with playerctl If not, see <http://www.gnu.org/licenses/>.
  *
- * Copyright © 2014, Tony Crisci and contributors.
+ * Copyright © 2014, Tony Crisci and contributors
  */
 
 #include "playerctl-common.h"
@@ -252,24 +252,26 @@ GList *pctl_list_player_names_on_bus(GBusType bus_type, GError **err) {
             g_debug("%s", "Playerctld is running. Getting names from there.");
             has_playerctld = TRUE;
 
-            GDBusProxy *playerctld_proxy = g_dbus_proxy_new_for_bus_sync(
-                bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, PLAYERCTLD_BUS_NAME,
-                "/org/mpris/MediaPlayer2", "com.github.altdesktop.playerctld", NULL, &tmp_error);
-            if (tmp_error != NULL) {
-                g_warning("Could not get player names from playerctld: %s", tmp_error->message);
-                g_clear_error(&tmp_error);
+            GVariant *playerctld_reply = NULL;
+            const gchar *interfaces[] = {PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY};
+            for (gsize j = 0; j < G_N_ELEMENTS(interfaces) && playerctld_reply == NULL; j++) {
+                GDBusProxy *playerctld_proxy = g_dbus_proxy_new_for_bus_sync(
+                    bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, PLAYERCTLD_BUS_NAME,
+                    "/org/mpris/MediaPlayer2", interfaces[j], NULL, &tmp_error);
+                if (tmp_error != NULL) {
+                    g_warning("Could not get player names from playerctld: %s", tmp_error->message);
+                    g_clear_error(&tmp_error);
+                    continue;
+                }
+                // an older playerctld only serves the legacy interface
+                playerctld_reply =
+                    g_dbus_proxy_get_cached_property(playerctld_proxy, "PlayerNames");
                 g_object_unref(playerctld_proxy);
-                break;
             }
-
-            GVariant *playerctld_reply =
-                g_dbus_proxy_get_cached_property(playerctld_proxy, "PlayerNames");
             if (playerctld_reply == NULL) {
                 g_warning(
                     "%s",
                     "Could not get player names from playerctld: PlayerNames property not found");
-                g_clear_error(&tmp_error);
-                g_object_unref(playerctld_proxy);
                 break;
             }
 
@@ -278,7 +280,6 @@ GList *pctl_list_player_names_on_bus(GBusType bus_type, GError **err) {
 
             reply = playerctld_reply;
             names = g_variant_get_strv(reply, &reply_count);
-            g_object_unref(playerctld_proxy);
             has_playerctld = TRUE;
 
             break;

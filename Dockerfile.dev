@@ -2,8 +2,19 @@
 # bind-mounted at /src, see `make dev-image`. Tests use ./Dockerfile instead.
 ARG FEDORA_VERSION=44
 ARG UV_VERSION=0.8.0
+ARG YAMLFMT_VERSION=v0.21.0
+ARG MARKDOWNFMT_VERSION=v3.1.0
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+# yamlfmt and markdownfmt are Go tools without Fedora packages: build them here
+# so the final image does not need a Go toolchain
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION} AS gotools
+ARG YAMLFMT_VERSION
+ARG MARKDOWNFMT_VERSION
+RUN dnf install -y --setopt=install_weak_deps=False golang git-core \
+    && GOBIN=/out go install github.com/google/yamlfmt/cmd/yamlfmt@${YAMLFMT_VERSION} \
+    && GOBIN=/out go install github.com/Kunde21/markdownfmt/v3/cmd/markdownfmt@${MARKDOWNFMT_VERSION}
 
 FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
@@ -21,6 +32,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
     && dnf clean all
 
 COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=gotools /out/yamlfmt /out/markdownfmt /usr/local/bin/
 
 # Keep the virtualenv outside the bind-mounted repo so it never clashes with a
 # host .venv

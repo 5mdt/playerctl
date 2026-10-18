@@ -1,4 +1,9 @@
-from .mpris import setup_mpris, setup_playerctld
+from .mpris import (
+    PLAYERCTLD_INTERFACE,
+    PLAYERCTLD_INTERFACE_LEGACY,
+    setup_mpris,
+    setup_playerctld,
+)
 from .playerctl import PlayerctlCli
 import pytest
 import asyncio
@@ -79,8 +84,14 @@ async def test_selection(bus_address):
 
 
 @pytest.mark.asyncio
-async def test_daemon_selection(bus_address):
-    playerctld = await setup_playerctld(bus_address=bus_address)
+# the legacy interface is what an older playerctld serves
+@pytest.mark.parametrize(
+    'interface', [PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY]
+)
+async def test_daemon_selection(bus_address, interface):
+    playerctld = await setup_playerctld(
+        bus_address=bus_address, interface=interface
+    )
     playerctl = PlayerctlCli(bus_address)
 
     def iface_name(player_name):

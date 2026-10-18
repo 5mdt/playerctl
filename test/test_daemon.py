@@ -2,12 +2,19 @@ import pytest
 
 import os
 import signal
-from .mpris import name_owner_pid, setup_mpris, wait_for_name
+from .mpris import (
+    PLAYERCTLD_INTERFACE,
+    PLAYERCTLD_INTERFACE_LEGACY,
+    name_owner_pid,
+    setup_mpris,
+    wait_for_name,
+)
 from .playerctl import PlayerctlCli, register
 from dbus_next.aio import MessageBus
 from dbus_next import Message, MessageType
 
 import asyncio
+from xml.etree import ElementTree
 from asyncio import Queue
 
 
@@ -47,16 +54,6 @@ async def start_playerctld(bus_address, debug=False):
     await wait_for_name(bus_address, PLAYERCTLD_NAME)
 
     return proc
-
-
-async def get_playerctld(bus):
-    path = '/com/github/altdesktop/playerctld'
-    interface = 'com.github.altdesktop.playerctld'
-    introspection = await bus.introspect(
-        'org.mpris.MediaPlayer2.playerctld', path
-    )
-    obj = bus.get_proxy_object(interface, path, introspection)
-    return obj.get_interface('org.freedesktop.DBus.Properties')
 
 
 @pytest.mark.asyncio
@@ -304,7 +301,7 @@ async def test_active_player_change(bus_address):
     def message_handler(message):
         if (
             message.member == 'PropertiesChanged'
-            and message.body[0] == 'com.github.altdesktop.playerctld'
+            and message.body[0] == PLAYERCTLD_INTERFACE
             and 'PlayerNames' in message.body[1]
         ):
             queue.put_nowait(message.body[1]['PlayerNames'].value)
@@ -380,5 +377,58 @@ async def test_daemon_proxy_error_empty_body(bus_address):
     assert mpris.play_called
 
     await mpris.disconnect()
+    playerctld_proc.terminate()
+    await playerctld_proc.wait()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'interface', [PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY]
+)
+async def test_playerctld_interfaces(bus_address, interface):
+    playerctld_proc = await start_playerctld(bus_address)
+    [mpris1] = await setup_mpris('player1', bus_address=bus_address)
+
+    bus = await MessageBus(bus_address=bus_address).connect()
+
+    async def call(iface, member, signature='', body=None):
+        return await bus.call(
+            Message(
+                destination=PLAYERCTLD_NAME,
+                interface=iface,
+                path='/org/mpris/MediaPlayer2',
+                member=member,
+                signature=signature,
+                body=body or [],
+            )
+        )
+
+    reply = await call(
+        'org.freedesktop.DBus.Properties',
+        'Get',
+        'ss',
+        [interface, 'PlayerNames'],
+    )
+    assert reply.message_type == MessageType.METHOD_RETURN, reply.body
+    assert reply.body[0].value == ['org.mpris.MediaPlayer2.player1']
+
+    reply = await call('org.freedesktop.DBus.Introspectable', 'Introspect')
+    assert reply.message_type == MessageType.METHOD_RETURN, reply.body
+    node = ElementTree.fromstring(reply.body[0])
+    iface = node.find(f"interface[@name='{interface}']")
+    deprecated = iface.find(
+        "annotation[@name='org.freedesktop.DBus.Deprecated']"
+    )
+    assert (deprecated is not None) == (
+        interface == PLAYERCTLD_INTERFACE_LEGACY
+    )
+
+    reply = await call(interface, 'Shift')
+    assert reply.message_type == MessageType.METHOD_RETURN, reply.body
+    assert reply.body == ['org.mpris.MediaPlayer2.player1']
+
+    await mpris1.disconnect()
+    bus.disconnect()
+    await bus.wait_for_disconnect()
     playerctld_proc.terminate()
     await playerctld_proc.wait()
