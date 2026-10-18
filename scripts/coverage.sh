@@ -17,4 +17,6 @@ uv run --no-project --with gcovr gcovr -r . --object-directory build-cov \
 	--filter 'playerctl/.*' --txt -o /out/report.txt
 uv run --no-project --with gcovr gcovr -r . --object-directory build-cov \
 	--filter 'playerctl/.*' --html-details -o /out/report.html
+uv run --no-project --with gcovr gcovr -r . --object-directory build-cov \
+	--filter 'playerctl/.*' --cobertura -o /out/coverage.xml
 cat /out/report.txt
