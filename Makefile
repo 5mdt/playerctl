@@ -20,8 +20,8 @@ require = @for t in $(1); do command -v $$t >/dev/null || { echo "No $$t in PATH
 
 # By default the format, lint and build targets run inside the tooling image
 # (Dockerfile.dev) so they only need podman or docker. Use CONTAINER=0 to run the
-# tools from the host instead (needs uv, clang-format, clang-tidy, shellcheck
-# and the glib dev packages).
+# tools from the host instead (needs uv, shellcheck and the glib dev packages;
+# clang-format and clang-tidy come from the pinned uv "lint" group).
 CONTAINER ?= 1
 DEV_IMAGE = playerctl-dev
 
@@ -95,8 +95,8 @@ format-py: $(DEV_DEPS) ## format Python sources in place (ruff)
 	$(RUN) uv run ruff format $(PY_DIRS)
 
 format-c: $(DEV_DEPS) ## format C sources in place (clang-format)
-	$(call require,$(call need,clang-format))
-	$(RUN) clang-format -i ${FORMAT_C_SOURCE}
+	$(call require,$(call need,uv))
+	$(RUN) uv run --group lint clang-format -i ${FORMAT_C_SOURCE}
 
 format-yaml: $(DEV_DEPS) ## format YAML files in place (yamlfmt)
 	$(call require,$(call need,yamlfmt))
@@ -114,8 +114,8 @@ format-check-py: $(DEV_DEPS) ## check Python formatting (ruff)
 	$(RUN) uv run ruff format --check $(PY_DIRS)
 
 format-check-c: $(DEV_DEPS) ## check C formatting (clang-format)
-	$(call require,$(call need,clang-format))
-	$(RUN) clang-format --dry-run --Werror ${FORMAT_C_SOURCE}
+	$(call require,$(call need,uv))
+	$(RUN) uv run --group lint clang-format --dry-run --Werror ${FORMAT_C_SOURCE}
 
 format-check-yaml: $(DEV_DEPS) ## check YAML formatting (yamlfmt)
 	$(call require,$(call need,yamlfmt))
@@ -141,9 +141,12 @@ $(BUILD_DIR)/compile_commands.json: $(DEV_DEPS)
 	$(RUN) uv run meson setup $(BUILD_DIR)
 	$(RUN) uv run meson compile -C $(BUILD_DIR)
 
+# Findings are warnings by default; CI passes CLANG_TIDY_FLAGS="--warnings-as-errors=*"
+CLANG_TIDY_FLAGS ?=
+
 lint-c: $(BUILD_DIR)/compile_commands.json ## lint C sources (clang-tidy, needs a meson build dir)
-	$(call require,$(call need,clang-tidy))
-	$(RUN) clang-tidy -p $(BUILD_DIR) --quiet $(filter %.c,${FORMAT_C_SOURCE})
+	$(call require,$(call need,uv))
+	$(RUN) uv run --group lint clang-tidy -p $(BUILD_DIR) --quiet $(CLANG_TIDY_FLAGS) $(filter %.c,${FORMAT_C_SOURCE})
 
 lint-sh: $(DEV_DEPS) ## lint shell scripts (shellcheck)
 	$(call require,$(call need,shellcheck))
