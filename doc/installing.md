@@ -4,22 +4,22 @@
 
 Every [release](https://github.com/5mdt/playerctl/releases) has packages for x86_64 and aarch64, built and install-tested in containers of each distribution. They use the same package names as the distributions, so they upgrade the `playerctl` that is already installed.
 
-Release file names start with the distribution they were built for. Download the files for your distribution release and CPU (`x86_64` or `aarch64` in `.rpm` and Arch names, `amd64` or `arm64` in `.deb` names) and install all of them in one command, from the directory you downloaded them to:
+Release file names start with `playerctl-`, the distribution with its release and the CPU (`x86_64` or `aarch64`), for example `playerctl-fedora-43-x86_64_`. Download the files of your distribution release and CPU and install all of them in one command, from the directory you downloaded them to. The commands below pick the CPU of the machine with `uname -m`:
 
 <!-- BEGIN distro-table -->
 
-| Distribution        | Install command                                   |
-|---------------------|---------------------------------------------------|
-| Fedora 43           | `sudo dnf install ./fedora-43_*.rpm`              |
-| Fedora 44           | `sudo dnf install ./fedora-44_*.rpm`              |
-| openSUSE Tumbleweed | `sudo zypper install ./opensuse-tumbleweed_*.rpm` |
-| openSUSE Leap 16.0  | `sudo zypper install ./opensuse-leap_*.rpm`       |
-| Debian 12           | `sudo apt install ./debian-12_*.deb`              |
-| Debian 13           | `sudo apt install ./debian-13_*.deb`              |
-| Ubuntu 22.04        | `sudo apt install ./ubuntu-22.04_*.deb`           |
-| Ubuntu 24.04        | `sudo apt install ./ubuntu-24.04_*.deb`           |
-| Ubuntu 26.04        | `sudo apt install ./ubuntu-26.04_*.deb`           |
-| Arch Linux          | `sudo pacman -U ./arch_*.pkg.tar.zst`             |
+| Distribution        | Install command                                                         |
+|---------------------|-------------------------------------------------------------------------|
+| Fedora 43           | `sudo dnf install ./playerctl-fedora-43-$(uname -m)_*.rpm`              |
+| Fedora 44           | `sudo dnf install ./playerctl-fedora-44-$(uname -m)_*.rpm`              |
+| openSUSE Tumbleweed | `sudo zypper install ./playerctl-opensuse-tumbleweed-$(uname -m)_*.rpm` |
+| openSUSE Leap 16.0  | `sudo zypper install ./playerctl-opensuse-leap-16.0-$(uname -m)_*.rpm`  |
+| Debian 12           | `sudo apt install ./playerctl-debian-12-$(uname -m)_*.deb`              |
+| Debian 13           | `sudo apt install ./playerctl-debian-13-$(uname -m)_*.deb`              |
+| Ubuntu 22.04        | `sudo apt install ./playerctl-ubuntu-22.04-$(uname -m)_*.deb`           |
+| Ubuntu 24.04        | `sudo apt install ./playerctl-ubuntu-24.04-$(uname -m)_*.deb`           |
+| Ubuntu 26.04        | `sudo apt install ./playerctl-ubuntu-26.04-$(uname -m)_*.deb`           |
+| Arch Linux          | `sudo pacman -U ./playerctl-arch-rolling-$(uname -m)_*.pkg.tar.zst`     |
 
 <!-- END distro-table -->
 

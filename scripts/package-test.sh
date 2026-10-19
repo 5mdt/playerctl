@@ -34,7 +34,9 @@ install() {
         dnf) dnf install -y "$@" ;;
         zypper) zypper --non-interactive install "$@" ;;
         apt) apt-get install -y --no-install-recommends "$@" ;;
-        pacman) pacman -S --noconfirm --needed "$@" ;;
+        # Landlock, which pacman sandboxes downloads with, is not allowed in
+        # containers on CI runners
+        pacman) pacman -S --disable-sandbox --noconfirm --needed "$@" ;;
     esac
 }
 
@@ -57,7 +59,7 @@ esac
 
 case ${pm} in
     apt) apt-get update ;;
-    pacman) pacman -Syu --noconfirm ;;
+    pacman) pacman -Syu --disable-sandbox --noconfirm ;;
     zypper) zypper --non-interactive refresh ;;
 esac
 

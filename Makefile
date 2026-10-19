@@ -1,4 +1,4 @@
-.PHONY: manifests manifests-sync manifests-check contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
+.PHONY: manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -83,6 +83,8 @@ endif
 DISTRO ?=
 distro_image = $(or $(IMAGE_$(DISTRO)),$(error set DISTRO to one of: $(PKG_DISTROS)))
 distro_dir = $(PKG_DIR)/$(DISTRO)-$(PKG_ARCH)
+# the name of the DISTRO packages in the release and in the CI artifacts
+package_slug = playerctl-$(or $(SLUG_$(DISTRO)),$(error set DISTRO to one of: $(PKG_DISTROS)))-$(PKG_ARCH)
 
 # Docker runs as real root: let package-build.sh hand the files back
 ifeq ($(notdir $(CONTAINER_ENGINE)),docker)
@@ -133,6 +135,9 @@ manifests-check: $(DEV_DEPS) ## fail if the version copies or the distro table i
 # missing or older than its sources
 $(PKG_GEN_DIR)/distros.mk: $(MANIFEST_SOURCES)
 	$(MAKE) manifests
+
+package-slug: ## print the name of the packages built for DISTRO in the release and the CI artifacts, e.g. playerctl-fedora-43-x86_64
+	@echo $(package_slug)
 
 package: ## build the package for DISTRO from the tarball in build/dist, in that distro's container into build/packages (DISTRO: see PKG_DISTROS)
 	$(call require,$(CONTAINER_ENGINE))

@@ -3,9 +3,10 @@
 
 The templates in packaging/templates/ (PKGBUILD, debian/, the rpm spec and
 the distro variables for the Makefile) are rendered into OUT, together with
-matrix.json, the list of distros for the CI matrix. The version comes from
-meson.build, the release notes from doc/CHANGELOG.md and the date from
-SOURCE_DATE_EPOCH or the HEAD commit, so nothing is written down twice.
+matrix.json, the list of distros for the CI matrix, and names.txt, the part of
+the release file names of each distro. The release notes come from
+doc/CHANGELOG.md and the date from SOURCE_DATE_EPOCH or the HEAD commit, so
+nothing is written down twice.
 
 Usage: scripts/render-packaging.py [--out OUT] [--sha256 SUM]
        scripts/render-packaging.py --sync | --check
@@ -115,13 +116,17 @@ def load_context(sha256=None):
     distros = []
     for key, distro in ctx['distros'].items():
         glob = ctx['package_globs'][distro['type']]
+        slug = f'{distro["name"]}-{distro["version"]}'
+        # the CPU of the machine is the one in the file names, deb and Arch too
+        files = f'./{ctx["name"]}-{slug}-$(uname -m)_{glob}'
         distros.append(
             {
                 'id': key,
+                'slug': slug,
                 'title': distro['title'],
                 'type': distro['type'],
                 'images': distro['image'],
-                'install_cmd': f'`{distro["install"]} ./{key}_{glob}`',
+                'install_cmd': f'`{distro["install"]} {files}`',
             }
         )
     ctx.update(
@@ -160,6 +165,9 @@ def render_manifests(out, ctx):
         target.chmod(template.stat().st_mode & 0o777)
     matrix = [d['id'] for d in ctx['distros']]
     (out / 'matrix.json').write_text(json.dumps(matrix) + '\n')
+    # for release-assets.sh: the distro key and its part of the file names
+    names = ''.join(f'{d["id"]} {d["slug"]}\n' for d in ctx['distros'])
+    (out / 'names.txt').write_text(names)
 
 
 def render_table(ctx):
