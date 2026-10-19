@@ -11,14 +11,25 @@ concurrency:
 jobs:
   dist:
     runs-on: ubuntu-24.04
+    outputs:
+      distros: ${{ steps.manifests.outputs.distros }}
     steps:
       - uses: actions/checkout@v4
       - name: Build the source tarball and check its contents
         run: make dist dist-check
+      - name: Render the package manifests
+        id: manifests
+        run: |
+          make manifests
+          echo "distros=$(cat build/packaging/matrix.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: build/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifests
+          path: build/packaging
   packages:
     needs: dist
     runs-on: ${{ matrix.runner }}
@@ -28,23 +39,17 @@ jobs:
         runner:
           - ubuntu-24.04
           - ubuntu-24.04-arm
-        distro:
-          - fedora-43
-          - fedora-44
-          - opensuse-tumbleweed
-          - opensuse-leap
-          - debian-12
-          - debian-13
-          - ubuntu-22.04
-          - ubuntu-24.04
-          - ubuntu-26.04
-          - arch
+        distro: ${{ fromJSON(needs.dist.outputs.distros) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: build/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifests
+          path: build/packaging
       - name: Build, lint and install-test the package in a ${{ matrix.distro }} container
         run: make package package-lint package-test DISTRO=${{ matrix.distro }}
       - uses: actions/upload-artifact@v4

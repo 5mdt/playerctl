@@ -1,33 +1,26 @@
 # Builds on Fedora and openSUSE from the meson dist tarball. Subpackage names
 # follow each distribution, so these packages upgrade the distro playerctl.
 %if 0%{?suse_version}
-%global libpkg libplayerctl2
-%global typelibpkg typelib-1_0-Playerctl-2_0
+%global libpkg lib{{ name }}{{ soversion }}
+%global typelibpkg typelib-1_0-Playerctl-{{ api_version | replace(".", "_") }}
 %else
 %global libpkg playerctl-libs
 %endif
 
-Name:           playerctl
-Version:        2.5.0
-Release:        1%{?dist}
-Summary:        Command-line utility and library for controlling media players
-License:        LGPL-3.0-or-later
-URL:            https://github.com/5mdt/playerctl
+Name:           {{ name }}
+Version:        {{ version }}
+Release:        {{ release }}%{?dist}
+Summary:        {{ summary_full }}
+License:        {{ license }}
+URL:            {{ homepage }}
 Source0:        %{name}-%{version}.tar.xz
 
-BuildRequires:  gcc
-BuildRequires:  meson
-BuildRequires:  pkgconfig(bash-completion)
-BuildRequires:  pkgconfig(gio-unix-2.0)
-BuildRequires:  pkgconfig(gobject-2.0)
-BuildRequires:  pkgconfig(gobject-introspection-1.0)
+{% for dep in rpm.build_requires %}
+BuildRequires:  {{ dep }}
+{% endfor %}
 
 %description
-Playerctl is a command-line utility and library for controlling media players
-that implement the MPRIS D-Bus Interface Specification. It makes it easy to
-bind player actions, such as play and pause, to media keys, and to get
-metadata about the playing track for status bars and other tools. The
-playerctld daemon acts on the currently active media player.
+{{ description | wrap(78) }}
 
 %package -n %{libpkg}
 Summary:        Playerctl shared library
@@ -63,7 +56,7 @@ against the Playerctl library.
 %autosetup
 
 %build
-%meson -Dgtk-doc=false -Dbash-completions=true -Dzsh-completions=true -Dtests=false
+%meson {{ meson_flags }}
 %meson_build
 
 %install
@@ -83,22 +76,24 @@ against the Playerctl library.
 
 %files -n %{libpkg}
 %license LICENSE.md
-%{_libdir}/libplayerctl.so.2*
+%{_libdir}/libplayerctl.so.{{ soversion }}*
 %if !0%{?suse_version}
-%{_libdir}/girepository-1.0/Playerctl-2.0.typelib
+%{_libdir}/girepository-1.0/Playerctl-{{ api_version }}.typelib
 %endif
 
 %if 0%{?suse_version}
 %files -n %{typelibpkg}
-%{_libdir}/girepository-1.0/Playerctl-2.0.typelib
+%{_libdir}/girepository-1.0/Playerctl-{{ api_version }}.typelib
 %endif
 
 %files devel
 %{_includedir}/playerctl/
 %{_libdir}/libplayerctl.so
 %{_libdir}/pkgconfig/playerctl.pc
-%{_datadir}/gir-1.0/Playerctl-2.0.gir
+%{_datadir}/gir-1.0/Playerctl-{{ api_version }}.gir
 
 %changelog
-* Mon Oct 19 2026 Vladimir Budylnikov <github@nett00n.org> - 2.5.0-1
-- Release 2.5.0 from the 5mdt fork
+* {{ date_rpm }} {{ maintainer.name }} <{{ maintainer.email }}> - {{ version }}-{{ release }}
+{% for entry in changelog %}
+- {{ entry | replace('%', '%%') }}
+{% endfor %}

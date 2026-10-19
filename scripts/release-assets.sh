@@ -29,7 +29,11 @@ for dir in "${pkgroot}"/*/; do
 done
 
 sum=$(sha256sum "${tarball}" | cut -d' ' -f1)
-sed "s/^sha256sums=.*/sha256sums=('${sum}')/" "${root}/packaging/arch/PKGBUILD" > "${outdir}/PKGBUILD"
+manifests=$(mktemp -d)
+# only the PKGBUILD is used, so the date from git does not matter
+SOURCE_DATE_EPOCH=0 "${root}/scripts/render-packaging.py" --out "${manifests}" --sha256 "${sum}"
+cp "${manifests}/arch/PKGBUILD" "${outdir}/PKGBUILD"
+rm -rf "${manifests}"
 
 (cd "${outdir}" && sha256sum -- * > SHA256SUMS)
 

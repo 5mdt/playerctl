@@ -1,4 +1,4 @@
-.PHONY: contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
+.PHONY: manifests manifests-sync manifests-check contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -66,37 +66,19 @@ docs: build ## build the API docs (HTML in build/container/doc/reference/html, o
 # Ubuntu LTS releases are in long term support). Everything runs in containers: the tarball in the tooling image,
 # each package in a container of the distro it is for (podman or docker).
 # Output: build/dist (tarball), build/packages/<distro>-<arch>, build/release.
-VERSION = $(shell sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
+VERSION = $(shell sed -n "s/^version: '\(.*\)'$$/\1/p" packaging/package.yaml)
 DIST_DIR = build/dist
 PKG_DIR = build/packages
 RELEASE_DIR = build/release
 TARBALL = $(DIST_DIR)/playerctl-$(VERSION).tar.xz
 PKG_ARCH = $(patsubst arm64,aarch64,$(shell uname -m))
 
-PKG_DISTROS = fedora-43 fedora-44 opensuse-tumbleweed opensuse-leap debian-12 debian-13 ubuntu-22.04 ubuntu-24.04 ubuntu-26.04 arch
-IMAGE_fedora-43 = registry.fedoraproject.org/fedora:43
-IMAGE_fedora-44 = registry.fedoraproject.org/fedora:44
-IMAGE_opensuse-tumbleweed = registry.opensuse.org/opensuse/tumbleweed:latest
-IMAGE_opensuse-leap = registry.opensuse.org/opensuse/leap:16.0
-IMAGE_debian-12 = docker.io/library/debian:12
-IMAGE_debian-13 = docker.io/library/debian:13
-IMAGE_ubuntu-22.04 = docker.io/library/ubuntu:22.04
-IMAGE_ubuntu-24.04 = docker.io/library/ubuntu:24.04
-IMAGE_ubuntu-26.04 = docker.io/library/ubuntu:26.04
-# There is no official Arch Linux ARM image, use the community one on aarch64
-IMAGE_arch_x86_64 = docker.io/library/archlinux:latest
-IMAGE_arch_aarch64 = docker.io/menci/archlinuxarm:latest
-IMAGE_arch = $(IMAGE_arch_$(PKG_ARCH))
-TYPE_fedora-43 = rpm
-TYPE_fedora-44 = rpm
-TYPE_opensuse-tumbleweed = rpm
-TYPE_opensuse-leap = rpm
-TYPE_debian-12 = deb
-TYPE_debian-13 = deb
-TYPE_ubuntu-22.04 = deb
-TYPE_ubuntu-24.04 = deb
-TYPE_ubuntu-26.04 = deb
-TYPE_arch = arch
+# PKG_DISTROS, IMAGE_* and TYPE_* come from packaging/package.yaml, as do the
+# manifests: they are rendered into PKG_GEN_DIR by `make manifests`
+PKG_GEN_DIR = build/packaging
+ifneq ($(filter package% release-assets,$(MAKECMDGOALS)),)
+include $(PKG_GEN_DIR)/distros.mk
+endif
 
 DISTRO ?=
 distro_image = $(or $(IMAGE_$(DISTRO)),$(error set DISTRO to one of: $(PKG_DISTROS)))
@@ -108,12 +90,17 @@ PKG_USER_ENV = -e HOST_UID=$(shell id -u) -e HOST_GID=$(shell id -g)
 endif
 
 # meson dist reads the git history. In a git worktree .git is a file pointing
-# outside the checkout, so the git directory is mounted as well.
+# outside the checkout, so the git directory is mounted as well. Inside the
+# container the files have another inode, device and owner than the ones in the
+# index, which makes git see every file as modified and meson refuse to run on a
+# clean tree; core.checkstat=minimal compares only the size and mtime, so real
+# changes are still found.
 DIST_FLAGS ?=
 ifeq ($(CONTAINER),1)
 GIT_COMMON_DIR = $(shell git rev-parse --path-format=absolute --git-common-dir)
 RUN_GIT = $(CONTAINER_ENGINE) run --rm $(CONTAINER_USER) \
-	-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+	-e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+	-e GIT_CONFIG_KEY_1=core.checkstat -e GIT_CONFIG_VALUE_1=minimal \
 	-v "$(CURDIR)":/src:Z -v "$(GIT_COMMON_DIR)":"$(GIT_COMMON_DIR)":ro,z -w /src $(DEV_IMAGE)
 else
 RUN_GIT =
@@ -128,13 +115,33 @@ dist: build ## build the source tarball (meson dist, only the files needed to bu
 dist-check: $(DEV_DEPS) ## fail if the tarball in build/dist holds files outside the allowlist
 	$(RUN) scripts/dist-check.sh $(TARBALL)
 
+MANIFEST_SOURCES = packaging/package.yaml $(shell find packaging/templates -type f) scripts/render-packaging.py doc/CHANGELOG.md
+
+manifests: $(DEV_DEPS) ## render the package manifests from packaging/package.yaml and packaging/templates into build/packaging
+	$(call require,$(call need,uv))
+	$(RUN_GIT) uv run --group packaging scripts/render-packaging.py --out $(PKG_GEN_DIR)
+
+manifests-sync: $(DEV_DEPS) ## copy the version from packaging/package.yaml to meson.build, pyproject.toml and uv.lock, and update the distro table in doc/installing.md
+	$(call require,$(call need,uv))
+	$(RUN) uv run --group packaging scripts/render-packaging.py --sync
+
+manifests-check: $(DEV_DEPS) ## fail if the version copies or the distro table in doc/installing.md are out of date
+	$(call require,$(call need,uv))
+	$(RUN_GIT) uv run --group packaging scripts/render-packaging.py --check
+
+# distros.mk is included while parsing, so make renders it first when it is
+# missing or older than its sources
+$(PKG_GEN_DIR)/distros.mk: $(MANIFEST_SOURCES)
+	$(MAKE) manifests
+
 package: ## build the package for DISTRO from the tarball in build/dist, in that distro's container into build/packages (DISTRO: see PKG_DISTROS)
 	$(call require,$(CONTAINER_ENGINE))
 	@test -f $(TARBALL) || { echo "No $(TARBALL), run make dist first" >&2; exit 1; }
+	@test -f $(PKG_GEN_DIR)/distros.mk || { echo "No $(PKG_GEN_DIR), run make manifests first" >&2; exit 1; }
 	$(CONTAINER_ENGINE) run --rm $(PKG_USER_ENV) -v "$(CURDIR)":/src:z -w /src $(distro_image) \
-		scripts/package-build.sh $(TYPE_$(DISTRO)) $(TARBALL) $(distro_dir)
+		scripts/package-build.sh $(TYPE_$(DISTRO)) $(TARBALL) $(distro_dir) $(PKG_GEN_DIR)
 
-packages: dist ## build the packages for every distro in PKG_DISTROS
+packages: dist manifests ## build the packages for every distro in PKG_DISTROS
 	@failed=; for d in $(PKG_DISTROS); do $(MAKE) package DISTRO=$$d || failed="$$failed $$d"; done; \
 	test -z "$$failed" || { echo "Failed:$$failed" >&2; exit 1; }
 
@@ -158,7 +165,7 @@ packages-test: ## install-test the packages of every distro in PKG_DISTROS
 
 release-assets: RUN_ARGS = -e GPG_PRIVATE_KEY
 release-assets: $(DEV_DEPS) ## collect tarball, packages and SHA256SUMS in build/release (signed if GPG_PRIVATE_KEY is set)
-	$(RUN) scripts/release-assets.sh $(DIST_DIR) $(PKG_DIR) $(RELEASE_DIR)
+	$(RUN) uv run --group packaging scripts/release-assets.sh $(DIST_DIR) $(PKG_DIR) $(RELEASE_DIR)
 
 test-local: ## build with meson on the host (CONTAINER=0), then run the pytest suite against ./build (needs glib dev packages and dbus-run-session)
 	$(call require,uv dbus-run-session)

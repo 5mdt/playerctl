@@ -6,6 +6,8 @@ Every [release](https://github.com/5mdt/playerctl/releases) has packages for x86
 
 Release file names start with the distribution they were built for. Download the files for your distribution release and CPU (`x86_64` or `aarch64` in `.rpm` and Arch names, `amd64` or `arm64` in `.deb` names) and install all of them in one command, from the directory you downloaded them to:
 
+<!-- BEGIN distro-table -->
+
 | Distribution        | Install command                                   |
 |---------------------|---------------------------------------------------|
 | Fedora 43           | `sudo dnf install ./fedora-43_*.rpm`              |
@@ -18,6 +20,8 @@ Release file names start with the distribution they were built for. Download the
 | Ubuntu 24.04        | `sudo apt install ./ubuntu-24.04_*.deb`           |
 | Ubuntu 26.04        | `sudo apt install ./ubuntu-26.04_*.deb`           |
 | Arch Linux          | `sudo pacman -U ./arch_*.pkg.tar.zst`             |
+
+<!-- END distro-table -->
 
 Each set holds the `playerctl` command, the shared library, and the development files (`-devel` or `-dev`) with the introspection data. Arch has a single package, `playerctl-5mdt`, which replaces `playerctl`; the release also has the `PKGBUILD` to build it yourself. The release also has `SHA256SUMS` (with `SHA256SUMS.asc`, a signature, when the maintainer's key was available) and the source tarball.
 

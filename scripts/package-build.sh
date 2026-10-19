@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Build a distro package from the meson dist tarball with the packaging
-# metadata in packaging/. Runs as root inside the target distro's container,
-# see `make package`.
+# Build a distro package from the meson dist tarball with the manifests
+# rendered by `make manifests`. Runs as root inside the target distro's
+# container, see `make package`.
 
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 {rpm|deb|arch} TARBALL OUTDIR" >&2
+    echo "usage: $0 {rpm|deb|arch} TARBALL OUTDIR MANIFESTDIR" >&2
     exit 2
 }
 
-[[ $# -eq 3 ]] || usage
+[[ $# -eq 4 ]] || usage
 type=$1
 tarball=$(realpath "$2")
 outdir=$3
-root=$(realpath "$(dirname "$0")/..")
+manifests=$(realpath "$4")
 version=$(basename "${tarball}" .tar.xz)
 version=${version#playerctl-}
 
@@ -24,7 +24,7 @@ work=$(mktemp -d)
 trap 'rm -rf "${work}"' EXIT
 
 build_rpm() {
-    local spec=${root}/packaging/rpm/playerctl.spec install
+    local spec=${manifests}/rpm/playerctl.spec install
     if command -v dnf > /dev/null; then
         install=(dnf install -y)
     else
@@ -50,7 +50,7 @@ build_deb() {
     cp "${tarball}" "${work}/playerctl_${version}.orig.tar.xz"
     tar -C "${work}" -xf "${tarball}"
     local tree=${work}/playerctl-${version}
-    cp -r "${root}/packaging/debian" "${tree}/debian"
+    cp -r "${manifests}/debian" "${tree}/debian"
 
     cd "${tree}"
     mk-build-deps --install --remove \
@@ -63,7 +63,7 @@ build_arch() {
     pacman -Syu --noconfirm --needed base-devel
     id builder > /dev/null 2>&1 || useradd -m builder
 
-    cp "${root}/packaging/arch/PKGBUILD" "${work}/PKGBUILD"
+    cp "${manifests}/arch/PKGBUILD" "${work}/PKGBUILD"
     cp "${tarball}" "${work}/playerctl-${version}.tar.xz"
     chown -R builder "${work}"
 

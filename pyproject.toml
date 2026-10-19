@@ -1,6 +1,6 @@
 [project]
 name = "playerctl-tests"
-version = "2.4.1"
+version = "2.5.0"
 description = "Test suite and examples for playerctl"
 requires-python = ">=3.10"
 dependencies = []
@@ -22,6 +22,12 @@ dev = [
 lint = [
     "clang-format==22.1.8",
     "clang-tidy==22.1.8",
+]
+
+# renders the package manifests, see scripts/render-packaging.py
+packaging = [
+    "jinja2",
+    "pyyaml",
 ]
 
 # for the libplayerctl tests (test/us11_library), which skip without it. Needs
