@@ -145,8 +145,19 @@ metadata_get_track_id (GVariant *metadata)
   if (track_id_variant != NULL)
     {
       const gchar *track_id = g_variant_get_string (track_id_variant, NULL);
+      gchar *result = NULL;
+      // players like Totem send ids that are not valid object paths, which
+      // would abort when building the SetPosition call
+      if (g_variant_is_object_path (track_id))
+        {
+          result = g_strdup (track_id);
+        }
+      else
+        {
+          g_debug ("mpris:trackid is not a valid object path: %s", track_id);
+        }
       g_variant_unref (track_id_variant);
-      return g_strdup (track_id);
+      return result;
     }
 
   return NULL;

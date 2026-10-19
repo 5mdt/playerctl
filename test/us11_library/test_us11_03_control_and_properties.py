@@ -127,6 +127,26 @@ async def test_set_position_with_string_track_id(gi_run, mpris_factory):
     assert mpris.set_position_called_with == ('/track/str', 3000000)
 
 
+async def test_set_position_with_invalid_object_path_fails(
+    gi_run, mpris_factory
+):
+    # altdesktop/playerctl#264, altdesktop/playerctl#287: used to abort in
+    # g_variant_new_object_path
+    [mpris] = await mpris_factory('lib')
+    mpris.metadata = {'mpris:trackid': Variant('s', 'not a path')}
+
+    result = await gi_run("""
+        try:
+            Playerctl.Player.new('lib').set_position(3000000)
+        except GLib.Error as e:
+            out('error', e.message)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[0] == 'error'
+    assert mpris.set_position_called_with is None
+
+
 async def test_set_position_without_track_id_fails(gi_run, mpris_factory):
     await mpris_factory('lib')
 
