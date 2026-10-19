@@ -1,11 +1,9 @@
-BasedOnStyle: google
-AllowShortIfStatementsOnASingleLine: false
-AllowShortLoopsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: None
-AllowShortBlocksOnASingleLine: false
-AlwaysBreakBeforeMultilineStrings: false
-IndentWidth: 4
-PointerBindsToType: false
-ColumnLimit: 100
-SpaceBeforeParens: ControlStatements
-IndentCaseLabels: false
+# GNU Coding Standards layout (as used by GLib/GTK). PointerAlignment is the
+# modern replacement for the removed PointerBindsToType key.
+Language: Cpp
+BasedOnStyle: GNU
+DerivePointerAlignment: false
+PointerAlignment: Right
+# gtk-doc annotations such as (type GList(Foo)) must stay on one line for
+# g-ir-scanner, so comments are never rewrapped
+ReflowComments: Never

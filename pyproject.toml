@@ -18,6 +18,12 @@ dev = [
     "ruff",
 ]
 
+# pinned C tooling, shared by the tooling image and CONTAINER=0 host runs
+lint = [
+    "clang-format==22.1.8",
+    "clang-tidy==22.1.8",
+]
+
 # for the libplayerctl tests (test/us11_library), which skip without it. Needs
 # cairo and python headers to build; 3.50 builds against libgirepository1.0-dev,
 # 3.52+ needs girepository-2.0.

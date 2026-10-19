@@ -19,7 +19,6 @@ RUN dnf install -y --setopt=install_weak_deps=False golang git-core \
 FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
 RUN dnf install -y --setopt=install_weak_deps=False \
-        clang-tools-extra \
         gcc \
         glib2-devel \
         gobject-introspection-devel \
@@ -42,7 +41,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_CACHE_DIR=/tmp/uv-cache
 WORKDIR /opt/project
 COPY pyproject.toml uv.lock ./
-RUN uv sync --no-install-project
+RUN uv sync --no-install-project --group lint
 ENV PATH=/opt/venv/bin:$PATH
 
 WORKDIR /src

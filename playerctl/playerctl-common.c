@@ -26,283 +26,372 @@
 
 #define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
 
-gboolean pctl_parse_playback_status(const gchar *status_str, PlayerctlPlaybackStatus *status) {
-    if (status_str == NULL) {
-        return FALSE;
+gboolean
+pctl_parse_playback_status (const gchar *status_str,
+                            PlayerctlPlaybackStatus *status)
+{
+  if (status_str == NULL)
+    {
+      return FALSE;
     }
 
-    if (strcasecmp(status_str, "Playing") == 0) {
-        *status = PLAYERCTL_PLAYBACK_STATUS_PLAYING;
-        return TRUE;
-    } else if (strcasecmp(status_str, "Paused") == 0) {
-        *status = PLAYERCTL_PLAYBACK_STATUS_PAUSED;
-        return TRUE;
-    } else if (strcasecmp(status_str, "Stopped") == 0) {
-        *status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
-        return TRUE;
+  if (strcasecmp (status_str, "Playing") == 0)
+    {
+      *status = PLAYERCTL_PLAYBACK_STATUS_PLAYING;
+      return TRUE;
+    }
+  if (strcasecmp (status_str, "Paused") == 0)
+    {
+      *status = PLAYERCTL_PLAYBACK_STATUS_PAUSED;
+      return TRUE;
+    }
+  if (strcasecmp (status_str, "Stopped") == 0)
+    {
+      *status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
+      return TRUE;
     }
 
-    return FALSE;
+  return FALSE;
 }
 
-const gchar *pctl_playback_status_to_string(PlayerctlPlaybackStatus status) {
-    switch (status) {
+const gchar *
+pctl_playback_status_to_string (PlayerctlPlaybackStatus status)
+{
+  switch (status)
+    {
     case PLAYERCTL_PLAYBACK_STATUS_PLAYING:
-        return "Playing";
+      return "Playing";
     case PLAYERCTL_PLAYBACK_STATUS_PAUSED:
-        return "Paused";
+      return "Paused";
     case PLAYERCTL_PLAYBACK_STATUS_STOPPED:
-        return "Stopped";
+      return "Stopped";
     }
-    return NULL;
+  return NULL;
 }
 
-const gchar *pctl_loop_status_to_string(PlayerctlLoopStatus status) {
-    switch (status) {
+const gchar *
+pctl_loop_status_to_string (PlayerctlLoopStatus status)
+{
+  switch (status)
+    {
     case PLAYERCTL_LOOP_STATUS_NONE:
-        return "None";
+      return "None";
     case PLAYERCTL_LOOP_STATUS_TRACK:
-        return "Track";
+      return "Track";
     case PLAYERCTL_LOOP_STATUS_PLAYLIST:
-        return "Playlist";
+      return "Playlist";
     }
-    return NULL;
+  return NULL;
 }
 
-gboolean pctl_parse_loop_status(const gchar *status_str, PlayerctlLoopStatus *status) {
-    if (status_str == NULL) {
-        return FALSE;
+gboolean
+pctl_parse_loop_status (const gchar *status_str, PlayerctlLoopStatus *status)
+{
+  if (status_str == NULL)
+    {
+      return FALSE;
     }
 
-    if (strcasecmp(status_str, "None") == 0) {
-        *status = PLAYERCTL_LOOP_STATUS_NONE;
-        return TRUE;
-    } else if (strcasecmp(status_str, "Track") == 0) {
-        *status = PLAYERCTL_LOOP_STATUS_TRACK;
-        return TRUE;
-    } else if (strcasecmp(status_str, "Playlist") == 0) {
-        *status = PLAYERCTL_LOOP_STATUS_PLAYLIST;
-        return TRUE;
+  if (strcasecmp (status_str, "None") == 0)
+    {
+      *status = PLAYERCTL_LOOP_STATUS_NONE;
+      return TRUE;
+    }
+  if (strcasecmp (status_str, "Track") == 0)
+    {
+      *status = PLAYERCTL_LOOP_STATUS_TRACK;
+      return TRUE;
+    }
+  if (strcasecmp (status_str, "Playlist") == 0)
+    {
+      *status = PLAYERCTL_LOOP_STATUS_PLAYLIST;
+      return TRUE;
     }
 
-    return FALSE;
+  return FALSE;
 }
 
-gchar *pctl_print_gvariant(GVariant *value) {
-    GString *printed = g_string_new("");
-    if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING_ARRAY)) {
-        gsize prop_count;
-        const gchar **prop_strv = g_variant_get_strv(value, &prop_count);
+gchar *
+pctl_print_gvariant (GVariant *value)
+{
+  GString *printed = g_string_new ("");
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
+    {
+      gsize prop_count;
+      const gchar **prop_strv = g_variant_get_strv (value, &prop_count);
 
-        for (gsize i = 0; i < prop_count; i += 1) {
-            g_string_append(printed, prop_strv[i]);
+      for (gsize i = 0; i < prop_count; i += 1)
+        {
+          g_string_append (printed, prop_strv[i]);
 
-            if (i != prop_count - 1) {
-                g_string_append(printed, ", ");
+          if (i != prop_count - 1)
+            {
+              g_string_append (printed, ", ");
             }
         }
 
-        g_free(prop_strv);
-    } else if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
-        g_string_append(printed, g_variant_get_string(value, NULL));
-    } else {
-        printed = g_variant_print_string(value, printed, FALSE);
+      g_free (prop_strv);
+    }
+  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING))
+    {
+      g_string_append (printed, g_variant_get_string (value, NULL));
+    }
+  else
+    {
+      printed = g_variant_print_string (value, printed, FALSE);
     }
 
-    return g_string_free(printed, FALSE);
+  return g_string_free (printed, FALSE);
 }
 
-GBusType pctl_source_to_bus_type(PlayerctlSource source) {
-    switch (source) {
+GBusType
+pctl_source_to_bus_type (PlayerctlSource source)
+{
+  switch (source)
+    {
     case PLAYERCTL_SOURCE_DBUS_SESSION:
-        return G_BUS_TYPE_SESSION;
+      return G_BUS_TYPE_SESSION;
     case PLAYERCTL_SOURCE_DBUS_SYSTEM:
-        return G_BUS_TYPE_SYSTEM;
+      return G_BUS_TYPE_SYSTEM;
     default:
-        return G_BUS_TYPE_NONE;
+      return G_BUS_TYPE_NONE;
     }
 }
 
-PlayerctlSource pctl_bus_type_to_source(GBusType bus_type) {
-    switch (bus_type) {
+PlayerctlSource
+pctl_bus_type_to_source (GBusType bus_type)
+{
+  switch (bus_type)
+    {
     case G_BUS_TYPE_SESSION:
-        return PLAYERCTL_SOURCE_DBUS_SESSION;
+      return PLAYERCTL_SOURCE_DBUS_SESSION;
     case G_BUS_TYPE_SYSTEM:
-        return PLAYERCTL_SOURCE_DBUS_SYSTEM;
+      return PLAYERCTL_SOURCE_DBUS_SYSTEM;
     default:
-        g_warning("could not convert bus type to source: %d\n", bus_type);
-        return PLAYERCTL_SOURCE_NONE;
+      g_warning ("could not convert bus type to source: %d\n", bus_type);
+      return PLAYERCTL_SOURCE_NONE;
     }
 }
 
-PlayerctlPlayerName *pctl_player_name_new(const gchar *instance, PlayerctlSource source) {
-    PlayerctlPlayerName *player_name = g_slice_new(PlayerctlPlayerName);
-    gchar **split = g_strsplit(instance, ".", 2);
-    player_name->name = g_strdup(split[0]);
-    g_strfreev(split);
-    player_name->instance = g_strdup(instance);
-    player_name->source = source;
-    return player_name;
+PlayerctlPlayerName *
+pctl_player_name_new (const gchar *instance, PlayerctlSource source)
+{
+  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new macro expansion
+  PlayerctlPlayerName *player_name = g_slice_new (PlayerctlPlayerName);
+  gchar **split = g_strsplit (instance, ".", 2);
+  player_name->name = g_strdup (split[0]);
+  g_strfreev (split);
+  player_name->instance = g_strdup (instance);
+  player_name->source = source;
+  return player_name;
 }
 
-gint pctl_player_name_compare(PlayerctlPlayerName *name_a, PlayerctlPlayerName *name_b) {
-    if (name_a->source != name_b->source) {
-        return 1;
+gint
+pctl_player_name_compare (PlayerctlPlayerName *name_a,
+                          PlayerctlPlayerName *name_b)
+{
+  if (name_a->source != name_b->source)
+    {
+      return 1;
     }
-    return g_strcmp0(name_a->instance, name_b->instance);
+  return g_strcmp0 (name_a->instance, name_b->instance);
 }
 
-gint pctl_player_name_instance_compare(PlayerctlPlayerName *name, PlayerctlPlayerName *instance) {
-    if (name->source != instance->source) {
-        return 1;
+gint
+pctl_player_name_instance_compare (PlayerctlPlayerName *name,
+                                   PlayerctlPlayerName *instance)
+{
+  if (name->source != instance->source)
+    {
+      return 1;
     }
-    return pctl_player_name_string_instance_compare(name->instance, instance->instance);
+  return pctl_player_name_string_instance_compare (name->instance,
+                                                   instance->instance);
 }
 
-gint pctl_player_name_string_instance_compare(const gchar *name, const gchar *instance) {
-    if (g_strcmp0(name, "%any") == 0 || g_strcmp0(instance, "%any") == 0) {
-        return 0;
+gint
+pctl_player_name_string_instance_compare (const gchar *name,
+                                          const gchar *instance)
+{
+  if (g_strcmp0 (name, "%any") == 0 || g_strcmp0 (instance, "%any") == 0)
+    {
+      return 0;
     }
 
-    gboolean exact_match = (g_strcmp0(name, instance) == 0);
-    gboolean instance_match =
-        !exact_match && (g_str_has_prefix(instance, name) && strlen(instance) > strlen(name) &&
-                         g_str_has_prefix(instance + strlen(name), "."));
+  gboolean exact_match = (g_strcmp0 (name, instance) == 0);
+  gboolean instance_match
+      = !exact_match
+        && (g_str_has_prefix (instance, name)
+            && strlen (instance) > strlen (name)
+            && g_str_has_prefix (instance + strlen (name), "."));
 
-    if (exact_match || instance_match) {
-        return 0;
-    } else {
-        return 1;
+  if (exact_match || instance_match)
+    {
+      return 0;
     }
+
+  return 1;
 }
 
-GList *pctl_player_name_find(GList *list, gchar *player_id, PlayerctlSource source) {
-    PlayerctlPlayerName player_name = {
-        .instance = player_id,
-        .source = source,
-    };
+GList *
+pctl_player_name_find (GList *list, gchar *player_id, PlayerctlSource source)
+{
+  PlayerctlPlayerName player_name = {
+    .instance = player_id,
+    .source = source,
+  };
 
-    return g_list_find_custom(list, &player_name, (GCompareFunc)pctl_player_name_compare);
+  return g_list_find_custom (list, &player_name,
+                             (GCompareFunc)pctl_player_name_compare);
 }
 
-GList *pctl_player_name_find_instance(GList *list, gchar *player_id, PlayerctlSource source) {
-    PlayerctlPlayerName player_name = {
-        .instance = player_id,
-        .source = source,
-    };
+GList *
+pctl_player_name_find_instance (GList *list, gchar *player_id,
+                                PlayerctlSource source)
+{
+  PlayerctlPlayerName player_name = {
+    .instance = player_id,
+    .source = source,
+  };
 
-    return g_list_find_custom(list, &player_name, (GCompareFunc)pctl_player_name_instance_compare);
+  return g_list_find_custom (list, &player_name,
+                             (GCompareFunc)pctl_player_name_instance_compare);
 }
 
-void pctl_player_name_list_destroy(GList *list) {
-    if (list == NULL) {
-        return;
+void
+pctl_player_name_list_destroy (GList *list)
+{
+  if (list == NULL)
+    {
+      return;
     }
-    g_list_free_full(list, (GDestroyNotify)playerctl_player_name_free);
+  g_list_free_full (list, (GDestroyNotify)playerctl_player_name_free);
 }
 
-GList *pctl_list_player_names_on_bus(GBusType bus_type, GError **err) {
-    GError *tmp_error = NULL;
-    GList *players = NULL;
-    gboolean has_playerctld = FALSE;
+GList *
+pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
+{
+  GError *tmp_error = NULL;
+  GList *players = NULL;
+  gboolean has_playerctld = FALSE;
 
-    GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync(
-        bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.freedesktop.DBus", "/org/freedesktop/DBus",
-        "org.freedesktop.DBus", NULL, &tmp_error);
+  GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync (
+      bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.freedesktop.DBus",
+      "/org/freedesktop/DBus", "org.freedesktop.DBus", NULL, &tmp_error);
 
-    if (tmp_error != NULL) {
-        if (tmp_error->domain == G_IO_ERROR && tmp_error->code == G_IO_ERROR_NOT_FOUND) {
-            // XXX: This means the dbus socket address is not found which may
-            // mean that the bus is not running or the address was set
-            // incorrectly. I think we can pass through here because it is true
-            // that there are no names on the bus that is supposed to be at
-            // this socket path. But we need a better way of dealing with this case.
-            const gchar *message = "D-Bus socket address not found, unable to list player names";
-            if (bus_type == G_BUS_TYPE_SESSION) {
-                g_warning("%s", message);
-            } else {
-                g_debug("%s", message);
+  if (tmp_error != NULL)
+    {
+      if (tmp_error->domain == G_IO_ERROR
+          && tmp_error->code == G_IO_ERROR_NOT_FOUND)
+        {
+          // XXX: This means the dbus socket address is not found which may
+          // mean that the bus is not running or the address was set
+          // incorrectly. I think we can pass through here because it is true
+          // that there are no names on the bus that is supposed to be at
+          // this socket path. But we need a better way of dealing with this
+          // case.
+          const gchar *message
+              = "D-Bus socket address not found, unable to list player names";
+          if (bus_type == G_BUS_TYPE_SESSION)
+            {
+              g_warning ("%s", message);
+            }
+          else
+            {
+              g_debug ("%s", message);
             }
 
-            g_clear_error(&tmp_error);
-            return NULL;
+          g_clear_error (&tmp_error);
+          return NULL;
         }
-        g_propagate_error(err, tmp_error);
-        return NULL;
+      g_propagate_error (err, tmp_error);
+      return NULL;
     }
 
-    g_debug("Getting list of player names from D-Bus");
-    GVariant *reply = g_dbus_proxy_call_sync(proxy, "ListNames", NULL, G_DBUS_CALL_FLAGS_NONE, -1,
-                                             NULL, &tmp_error);
+  g_debug ("Getting list of player names from D-Bus");
+  GVariant *reply = g_dbus_proxy_call_sync (
+      proxy, "ListNames", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
 
-    if (tmp_error != NULL) {
-        g_propagate_error(err, tmp_error);
-        g_object_unref(proxy);
-        return NULL;
+  if (tmp_error != NULL)
+    {
+      g_propagate_error (err, tmp_error);
+      g_object_unref (proxy);
+      return NULL;
     }
 
-    GVariant *reply_child = g_variant_get_child_value(reply, 0);
-    gsize reply_count;
-    const gchar **names = g_variant_get_strv(reply_child, &reply_count);
+  GVariant *reply_child = g_variant_get_child_value (reply, 0);
+  gsize reply_count;
+  const gchar **names = g_variant_get_strv (reply_child, &reply_count);
 
-    // If playerctld is in the names, get the list of players from there
-    // because it will be in order of activity
-    for (gsize i = 0; i < reply_count; i += 1) {
-        if (g_strcmp0(names[i], PLAYERCTLD_BUS_NAME) == 0) {
-            g_debug("%s", "Playerctld is running. Getting names from there.");
-            has_playerctld = TRUE;
+  // If playerctld is in the names, get the list of players from there
+  // because it will be in order of activity
+  for (gsize i = 0; i < reply_count; i += 1)
+    {
+      if (g_strcmp0 (names[i], PLAYERCTLD_BUS_NAME) == 0)
+        {
+          g_debug ("%s", "Playerctld is running. Getting names from there.");
+          has_playerctld = TRUE;
 
-            GVariant *playerctld_reply = NULL;
-            const gchar *interfaces[] = {PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY};
-            for (gsize j = 0; j < G_N_ELEMENTS(interfaces) && playerctld_reply == NULL; j++) {
-                GDBusProxy *playerctld_proxy = g_dbus_proxy_new_for_bus_sync(
-                    bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, PLAYERCTLD_BUS_NAME,
-                    "/org/mpris/MediaPlayer2", interfaces[j], NULL, &tmp_error);
-                if (tmp_error != NULL) {
-                    g_warning("Could not get player names from playerctld: %s", tmp_error->message);
-                    g_clear_error(&tmp_error);
-                    continue;
+          GVariant *playerctld_reply = NULL;
+          const gchar *interfaces[]
+              = { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY };
+          for (gsize j = 0;
+               j < G_N_ELEMENTS (interfaces) && playerctld_reply == NULL; j++)
+            {
+              GDBusProxy *playerctld_proxy = g_dbus_proxy_new_for_bus_sync (
+                  bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, PLAYERCTLD_BUS_NAME,
+                  "/org/mpris/MediaPlayer2", interfaces[j], NULL, &tmp_error);
+              if (tmp_error != NULL)
+                {
+                  g_warning ("Could not get player names from playerctld: %s",
+                             tmp_error->message);
+                  g_clear_error (&tmp_error);
+                  continue;
                 }
-                // an older playerctld only serves the legacy interface
-                playerctld_reply =
-                    g_dbus_proxy_get_cached_property(playerctld_proxy, "PlayerNames");
-                g_object_unref(playerctld_proxy);
+              // an older playerctld only serves the legacy interface
+              playerctld_reply = g_dbus_proxy_get_cached_property (
+                  playerctld_proxy, "PlayerNames");
+              g_object_unref (playerctld_proxy);
             }
-            if (playerctld_reply == NULL) {
-                g_warning(
-                    "%s",
-                    "Could not get player names from playerctld: PlayerNames property not found");
-                break;
+          if (playerctld_reply == NULL)
+            {
+              g_warning ("%s", "Could not get player names from playerctld: "
+                               "PlayerNames property not found");
+              break;
             }
 
-            g_variant_unref(reply);
-            g_free(names);
+          g_variant_unref (reply);
+          g_free (names);
 
-            reply = playerctld_reply;
-            names = g_variant_get_strv(reply, &reply_count);
-            has_playerctld = TRUE;
+          reply = playerctld_reply;
+          names = g_variant_get_strv (reply, &reply_count);
+          has_playerctld = TRUE;
 
-            break;
+          break;
         }
     }
 
-    size_t offset = strlen(MPRIS_PREFIX);
-    for (gsize i = 0; i < reply_count; i += 1) {
-        if (g_str_has_prefix(names[i], MPRIS_PREFIX)) {
-            PlayerctlPlayerName *player_name =
-                pctl_player_name_new(names[i] + offset, pctl_bus_type_to_source(bus_type));
-            players = g_list_append(players, player_name);
+  size_t offset = strlen (MPRIS_PREFIX);
+  for (gsize i = 0; i < reply_count; i += 1)
+    {
+      // NOLINTNEXTLINE(bugprone-assignment-in-if-condition): glib macro
+      if (g_str_has_prefix (names[i], MPRIS_PREFIX))
+        {
+          PlayerctlPlayerName *player_name = pctl_player_name_new (
+              names[i] + offset, pctl_bus_type_to_source (bus_type));
+          players = g_list_append (players, player_name);
         }
     }
 
-    if (!has_playerctld) {
-        players = g_list_sort(players, (GCompareFunc)pctl_player_name_compare);
+  if (!has_playerctld)
+    {
+      players = g_list_sort (players, (GCompareFunc)pctl_player_name_compare);
     }
 
-    g_object_unref(proxy);
-    g_variant_unref(reply);
-    g_variant_unref(reply_child);
-    g_free(names);
+  g_object_unref (proxy);
+  g_variant_unref (reply);
+  g_variant_unref (reply_child);
+  g_free (names);
 
-    return players;
+  return players;
 }

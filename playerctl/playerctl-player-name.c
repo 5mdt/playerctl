@@ -28,19 +28,22 @@
  *
  * Returns: (transfer full): a newly-allocated copy of @name
  */
-PlayerctlPlayerName *playerctl_player_name_copy(PlayerctlPlayerName *name) {
-    PlayerctlPlayerName *retval;
+PlayerctlPlayerName *
+playerctl_player_name_copy (PlayerctlPlayerName *name)
+{
+  PlayerctlPlayerName *retval;
 
-    g_return_val_if_fail(name != NULL, NULL);
+  g_return_val_if_fail (name != NULL, NULL);
 
-    retval = g_slice_new0(PlayerctlPlayerName);
-    *retval = *name;
+  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new0 macro expansion
+  retval = g_slice_new0 (PlayerctlPlayerName);
+  *retval = *name;
 
-    retval->source = name->source;
-    retval->instance = g_strdup(name->instance);
-    retval->name = g_strdup(name->name);
+  retval->source = name->source;
+  retval->instance = g_strdup (name->instance);
+  retval->name = g_strdup (name->name);
 
-    return retval;
+  return retval;
 }
 
 /**
@@ -49,15 +52,18 @@ PlayerctlPlayerName *playerctl_player_name_copy(PlayerctlPlayerName *name) {
  *
  * Frees @name. If @name is %NULL, it simply returns.
  */
-void playerctl_player_name_free(PlayerctlPlayerName *name) {
-    if (name == NULL) {
-        return;
+void
+playerctl_player_name_free (PlayerctlPlayerName *name)
+{
+  if (name == NULL)
+    {
+      return;
     }
 
-    g_free(name->instance);
-    g_free(name->name);
-    g_slice_free(PlayerctlPlayerName, name);
+  g_free (name->instance);
+  g_free (name->name);
+  g_slice_free (PlayerctlPlayerName, name);
 }
 
-G_DEFINE_BOXED_TYPE(PlayerctlPlayerName, playerctl_player_name, playerctl_player_name_copy,
-                    playerctl_player_name_free);
+G_DEFINE_BOXED_TYPE (PlayerctlPlayerName, playerctl_player_name,
+                     playerctl_player_name_copy, playerctl_player_name_free);

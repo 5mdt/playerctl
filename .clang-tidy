@@ -1,12 +1,15 @@
-# Correctness and static-analysis checks only; style is handled by clang-format.
-# Every finding fails the build (WarningsAsErrors), so keep the tree clean and
-# use NOLINT with a reason for the rare false positive.
+# Correctness, performance and a few readability checks; layout is handled by
+# clang-format. Findings are warnings locally; CI passes
+# --warnings-as-errors='*' (see CLANG_TIDY_FLAGS in the Makefile), so keep the
+# tree clean and use NOLINT with a reason for the rare false positive.
 #
 # Disabled checks:
 #   bugprone-easily-swappable-parameters: flags public API signatures, which
 #     cannot change without breaking the ABI
 #   bugprone-casting-through-void: fires inside the glib G_* cast macros
 #   bugprone-multi-level-implicit-pointer-conversion: GObject out-parameter APIs
+#   bugprone-narrowing-conversions: glib mixes guint/gsize/gint64 with the
+#     signed int and double types of its public API throughout
 #
 # Probed but not enabled (too noisy for GObject code, or an ABI-affecting
 # change): misc-include-cleaner, misc-unused-parameters, misc-no-recursion,
@@ -19,12 +22,33 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -bugprone-casting-through-void,
   -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-narrowing-conversions,
   cert-err33-c,
-  cert-dcl16-c
-WarningsAsErrors: '*'
+  cert-err34-c,
+  cert-flp30-c,
+  cert-msc30-c,
+  cert-msc50-c,
+  cert-str34-c,
+  cert-dcl16-c,
+  performance-*,
+  -performance-no-int-to-ptr,
+  readability-braces-around-statements,
+  readability-else-after-return,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  readability-duplicate-include,
+  readability-non-const-parameter,
+  readability-inconsistent-declaration-parameter-name,
+  readability-isolate-declaration,
+  misc-redundant-expression,
+  misc-misleading-identifier,
+  misc-misleading-bidirectional,
+  misc-definitions-in-headers,
+  misc-static-assert
 # Hand-written headers only: the gdbus-codegen output (playerctl-generated.h)
 # cannot be edited
 HeaderFilterRegex: 'playerctl/playerctl(-common|-formatter|-player|-player-manager|-player-name|-player-private|-version|-enum-types)?\.h$'
 CheckOptions:
-  # GObject struct tags (struct _PlayerctlPlayer) are a glib convention
-  bugprone-reserved-identifier.AllowedIdentifiers: '_Playerctl[A-Za-z]*'
+  # GObject struct tags (struct _PlayerctlPlayer) and __PLAYERCTL_*__ header
+  # guards are glib conventions
+  bugprone-reserved-identifier.AllowedIdentifiers: '_Playerctl[A-Za-z]*;__PLAYERCTL_[A-Z_]*__'

@@ -4,11 +4,13 @@
 Only commits touching C sources (*.c, *.h) count. Authors and
 Co-authored-by trailers are collected (respecting .mailmap).
 People already listed are matched by email or by name and left as they are.
-The file stays sorted on last names.
+The whole list is re-sorted on last names on every run; existing records are
+never removed.
 
 Usage: scripts/update-contributors.py [--check | --duplicates]
 
-With --check nothing is written; the exit status is 1 if anyone is missing.
+With --check nothing is written; the exit status is 1 if anyone is missing
+or the list is not sorted.
 With --duplicates nothing is written; identities that look like the same
 person (in CONTRIBUTORS.md or the git history) are listed, and the exit status
 is 1 if there are any. Merge them with a .mailmap entry.
@@ -222,19 +224,25 @@ def main():
         names.add(name.casefold())
         missing.append(person)
 
-    if not missing:
-        print('CONTRIBUTORS.md is up to date')
-        return 0
-
     for name, email in sorted(missing, key=sort_key):
         print(f'{"missing" if args.check else "adding"}: {name} <{email}>')
-    if args.check:
-        return 1
 
     entries = sorted(entries + missing, key=sort_key)
     # markdownfmt drops the angle brackets, so write what it would
     lines = header + [f'- {name} {email}' for name, email in entries] + footer
-    CONTRIBUTORS.write_text('\n'.join(lines) + '\n')
+    text = '\n'.join(lines) + '\n'
+    unsorted = text != CONTRIBUTORS.read_text()
+
+    if not missing and not unsorted:
+        print('CONTRIBUTORS.md is up to date')
+        return 0
+    if args.check:
+        if unsorted and not missing:
+            print('CONTRIBUTORS.md is not sorted')
+        return 1
+    if unsorted and not missing:
+        print('sorting CONTRIBUTORS.md')
+    CONTRIBUTORS.write_text(text)
     return 0
 
 
