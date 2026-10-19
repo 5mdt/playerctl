@@ -65,6 +65,7 @@ playerctl metadata --format '{{ artist }} - {{ title }}'
 - [Using the library](doc/library.md) - GObject introspection bindings and example scripts
 - [API reference](https://5mdt.github.io/playerctl/) - generated from the C sources
 - [Changelog](doc/CHANGELOG.md) - what changed in each release
+- [Releasing](doc/releasing.md) - release candidates and releases from the GitHub UI
 
 <!-- Section: external articles -->
 

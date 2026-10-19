@@ -1,0 +1,60 @@
+---
+name: Tag release
+'on':
+  workflow_dispatch:
+    inputs:
+      rc:
+        description: Release candidate tag to release, e.g. v2.5.0-rc3 (empty for the latest one of the version in develop)
+        type: string
+        default: ''
+concurrency:
+  group: release
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: write
+jobs:
+  release:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check that the packages of the release candidate were built
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC_INPUT: ${{ inputs.rc }}
+        run: |
+          rc=${RC_INPUT}
+          if [ -z "${rc}" ]; then
+            version=$(git show origin/develop:packaging/package.yaml | sed -n "s/^version: *['\"]*\([^'\"]*\)['\"]*$/\1/p")
+            rc=$(git tag --list "v${version}-rc*" | sort -t c -k 2 -n | tail -n1)
+          fi
+          test -n "${rc}" || { echo "::error::no release candidate tag, run Tag RC first"; exit 1; }
+          conclusion=$(gh run list --workflow packages.yml --branch "${rc}" --limit 1 --json conclusion --jq '.[0].conclusion')
+          if [ "${conclusion}" != success ]; then
+            echo "::error::the latest Packages run on ${rc} is '${conclusion:-missing}', not 'success'"
+            exit 1
+          fi
+          echo "RC=${rc}" >> "$GITHUB_ENV"
+      - name: Squash the release candidate onto main and tag it
+        id: tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make release RC="${RC}" PUSH=1 | tee "$RUNNER_TEMP/release.log"
+          echo "tag=$(sed -n 's/^created tag //p' "$RUNNER_TEMP/release.log")" >> "$GITHUB_OUTPUT"
+      - name: Publish the files of the release candidate as the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # the packages carry the version from packaging/package.yaml, not from the tag, so they are reused as built
+          tag=${{ steps.tag.outputs.tag }}
+          version=${tag#v}
+          gh release download "${RC}" --dir build/release
+          awk -v header="## Version ${version}" '$0 == header {found = 1; next} /^## / {found = 0} found' \
+            doc/CHANGELOG.md > build/notes.md
+          gh release create "${tag}" build/release/* \
+            --title "Playerctl ${version}" --notes-file build/notes.md --latest
+          echo "Released \`${tag}\` from \`${RC}\`: $(gh release view "${tag}" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
