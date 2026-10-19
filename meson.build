@@ -1,13 +1,14 @@
 project(
   'playerctl',
   'c',
-  version: '2.4.1',
+  version: '2.5.0',
   meson_version: '>=0.56.0',
   default_options: ['c_std=gnu11'],
 )
 
 release_date = 'September 21, 2021'
 
+fs = import('fs')
 gnome = import('gnome')
 pkgconfig = import('pkgconfig')
 
@@ -53,4 +54,10 @@ subdir('doc')
 
 if get_option('tests')
   subdir('test/c')
+endif
+
+# Trim the release tarball to what is needed to build it. The script is itself
+# pruned from the tarball, so the check build there must not look for it.
+if fs.exists('scripts/dist-prune.sh')
+  meson.add_dist_script('scripts/dist-prune.sh')
 endif

@@ -1,0 +1,99 @@
+# Builds on Fedora and openSUSE from the meson dist tarball. Subpackage names
+# follow each distribution, so these packages upgrade the distro playerctl.
+%if 0%{?suse_version}
+%global libpkg lib{{ name }}{{ soversion }}
+%global typelibpkg typelib-1_0-Playerctl-{{ api_version | replace(".", "_") }}
+%else
+%global libpkg playerctl-libs
+%endif
+
+Name:           {{ name }}
+Version:        {{ version }}
+Release:        {{ release }}%{?dist}
+Summary:        {{ summary_full }}
+License:        {{ license }}
+URL:            {{ homepage }}
+Source0:        %{name}-%{version}.tar.xz
+
+{% for dep in rpm.build_requires %}
+BuildRequires:  {{ dep }}
+{% endfor %}
+
+%description
+{{ description | wrap(78) }}
+
+%package -n %{libpkg}
+Summary:        Playerctl shared library
+%if !0%{?suse_version}
+Requires:       %{name}%{?_isa} = %{version}-%{release}
+%endif
+
+%description -n %{libpkg}
+The Playerctl shared library, used by the playerctl command and by programs
+that control MPRIS media players.
+
+%if 0%{?suse_version}
+%package -n %{typelibpkg}
+Summary:        Introspection data for Playerctl
+
+%description -n %{typelibpkg}
+Introspection data for the Playerctl library, used to call it from languages
+such as Python and JavaScript.
+%endif
+
+%package devel
+Summary:        Development files for Playerctl
+Requires:       %{libpkg}%{?_isa} = %{version}-%{release}
+%if 0%{?suse_version}
+Requires:       %{typelibpkg} = %{version}-%{release}
+%endif
+
+%description devel
+Headers, the pkgconfig file and the introspection source for developing
+against the Playerctl library.
+
+%prep
+%autosetup
+
+%build
+%meson {{ meson_flags }}
+%meson_build
+
+%install
+%meson_install
+
+%ldconfig_scriptlets -n %{libpkg}
+
+%files
+%license LICENSE.md
+%doc README.md doc/CHANGELOG.md
+%{_bindir}/playerctl
+%{_bindir}/playerctld
+%{_mandir}/man1/playerctl.1*
+%{_datadir}/dbus-1/services/org.mpris.MediaPlayer2.playerctld.service
+%{_datadir}/bash-completion/completions/playerctl*
+%{_datadir}/zsh/site-functions/_playerctl
+
+%files -n %{libpkg}
+%license LICENSE.md
+%{_libdir}/libplayerctl.so.{{ soversion }}*
+%if !0%{?suse_version}
+%{_libdir}/girepository-1.0/Playerctl-{{ api_version }}.typelib
+%endif
+
+%if 0%{?suse_version}
+%files -n %{typelibpkg}
+%{_libdir}/girepository-1.0/Playerctl-{{ api_version }}.typelib
+%endif
+
+%files devel
+%{_includedir}/playerctl/
+%{_libdir}/libplayerctl.so
+%{_libdir}/pkgconfig/playerctl.pc
+%{_datadir}/gir-1.0/Playerctl-{{ api_version }}.gir
+
+%changelog
+* {{ date_rpm }} {{ maintainer.name }} <{{ maintainer.email }}> - {{ version }}-{{ release }}
+{% for entry in changelog %}
+- {{ entry | replace('%', '%%') }}
+{% endfor %}

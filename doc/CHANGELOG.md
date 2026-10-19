@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Version 2.5.0
 
 - Repo forked
 - D-Bus interface renamed to `org._5mdt.playerctld`. `com.github.altdesktop.playerctld` interface is still served, marked deprecated

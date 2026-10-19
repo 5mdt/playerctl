@@ -1,4 +1,4 @@
-# Tooling image for the Makefile targets (format, lint, build); the repo is
+# Tooling image for the Makefile targets (format, lint, build, manifests); the repo is
 # bind-mounted at /src, see `make dev-image`. Tests use ./Dockerfile instead.
 ARG FEDORA_VERSION=44
 ARG UV_VERSION=0.8.0
@@ -20,7 +20,9 @@ FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
 RUN dnf install -y --setopt=install_weak_deps=False \
         gcc \
+        git-core \
         glib2-devel \
+        gnupg2 \
         gobject-introspection-devel \
         gtk-doc \
         make \
@@ -28,6 +30,8 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         ninja-build \
         python3 \
         ShellCheck \
+        tar \
+        xz \
     && dnf clean all
 
 COPY --from=uv /uv /usr/local/bin/uv
@@ -41,7 +45,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_CACHE_DIR=/tmp/uv-cache
 WORKDIR /opt/project
 COPY pyproject.toml uv.lock ./
-RUN uv sync --no-install-project --group lint
+RUN uv sync --no-install-project --group lint --group packaging
 ENV PATH=/opt/venv/bin:$PATH
 
 WORKDIR /src

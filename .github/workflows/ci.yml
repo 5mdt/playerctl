@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Format and lint in the tooling image
-        run: make format-check lint CLANG_TIDY_FLAGS='--warnings-as-errors=*'
+        run: make format-check manifests-check lint CLANG_TIDY_FLAGS='--warnings-as-errors=*'
   test:
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}
