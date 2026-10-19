@@ -2,8 +2,10 @@
 PropertiesChanged inconsistently (Spotify-style cache bypass, invalidated
 properties, missing track ids, wrong types, unknown status strings)."""
 
+import asyncio
+
 import pytest
-from dbus_next import Variant
+from dbus_next import Message, MessageType, Variant
 
 from ..helpers.mpris import PLAYER_INTERFACE, gated
 
@@ -59,6 +61,70 @@ async def test_metadata_missing_from_the_cache_is_fetched_directly(
         "'/track/1'",
     ]
     assert mpris.set_position_called_with == ('/track/1', 5)
+
+
+def reply_to_get(mpris, prop, signature, body):
+    """Answer Properties.Get(<prop>) with a reply of the given type."""
+
+    def handler(msg):
+        if (
+            msg.message_type == MessageType.METHOD_CALL
+            and msg.member == 'Get'
+            and msg.body[1:] == [prop]
+        ):
+            return Message.new_method_return(msg, signature, body)
+
+    mpris.bus.add_message_handler(handler)
+
+
+async def test_invalid_reply_for_the_direct_metadata_fetch_is_an_error(
+    gi_run, mpris_factory
+):
+    # altdesktop/playerctl#316: the reply to Properties.Get(Metadata) is not
+    # a variant
+    [mpris] = await mpris_factory('inc', prepare=gated(spotify_style))
+    await mpris.set_artist_title('artist', 'title', '/track/1')
+    reply_to_get(mpris, 'Metadata', 's', ['oops'])
+
+    result = await gi_run("""
+        player = Playerctl.Player.new('inc')
+        try:
+            player.set_position(5)
+        except GLib.Error as e:
+            out('error', e.message)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert 'invalid reply for the Metadata property' in result.stdout
+    assert mpris.set_position_called_with is None
+
+
+@pytest.mark.parametrize(
+    'signature, body',
+    [('s', ['Playing']), ('v', [Variant('i', 1)])],
+    ids=['not-a-variant', 'not-a-string'],
+)
+async def test_invalid_playback_status_reply_on_track_change_is_ignored(
+    signature, body, gi_start, mpris_factory
+):
+    # altdesktop/playerctl#316: the status is fetched after a track change
+    # that does not announce it. The script exits on its own, so that the
+    # coverage data of the library is written.
+    [mpris] = await mpris_factory('inc')
+    reply_to_get(mpris, 'PlaybackStatus', signature, body)
+    proc = await gi_start("""
+        player = Playerctl.Player.new('inc')
+        player.connect('metadata', lambda p, m: out('metadata'))
+        player.connect('playback-status', lambda p, s: out('status'))
+        run_loop(1000)
+    """)
+
+    await mpris.send_properties_changed({'Metadata': Variant('a{sv}', TRACK)})
+
+    assert await proc.queue.get() == 'metadata'
+    assert await proc.proc.wait() == 0, 'the library crashed'
+    await asyncio.sleep(0.1)
+    assert proc.queue.empty(), 'a status was announced'
 
 
 async def test_invalidated_metadata_is_fetched_directly(

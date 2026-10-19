@@ -3,6 +3,10 @@ during `-F` to stop follow mode with exit code 1."""
 
 import asyncio
 
+import pytest
+from dbus_next import Message, MessageType
+from dbus_next.service import Variant
+
 from ..helpers.follow import next_line
 
 
@@ -95,3 +99,41 @@ async def test_error_for_player_present_at_start(playerctl, mpris_factory):
 
     stderr = await _expect_failure(proc, message='Connection to player failed')
     assert 'Divide by zero' in stderr
+
+
+@pytest.mark.parametrize(
+    'signature, body',
+    [('s', ['Playing']), ('v', [Variant('i', 1)])],
+    ids=['not-a-variant', 'not-a-string'],
+)
+async def test_playback_status_reply_without_variant_does_not_crash(
+    signature, body, playerctl, mpris_factory
+):
+    # altdesktop/playerctl#316: a player answering Properties.Get with a plain
+    # string
+    # instead of a variant aborted playerctl on a track change
+    [mpris] = await mpris_factory('harmonoid')
+    await mpris.set_artist_title('artist', 'title')
+
+    def bad_get(msg):
+        if (
+            msg.message_type == MessageType.METHOD_CALL
+            and msg.member == 'Get'
+            and msg.body[1:] == ['PlaybackStatus']
+        ):
+            return Message.new_method_return(msg, signature, body)
+
+    mpris.bus.add_message_handler(bad_get)
+    proc = await playerctl.start('metadata -f "{{title}}" --follow')
+    assert await next_line(proc) == 'title'
+
+    track = {
+        'mpris:trackid': Variant('o', '/new/1'),
+        'xesam:title': Variant('s', 'new'),
+    }
+    await mpris.send_properties_changed({'Metadata': Variant('a{sv}', track)})
+
+    assert await next_line(proc) == 'new'
+    # the status is fetched after the metadata is printed
+    await asyncio.sleep(0.5)
+    assert proc.proc.returncode is None, 'playerctl crashed'
