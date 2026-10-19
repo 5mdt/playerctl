@@ -182,7 +182,7 @@ player_update_properties (struct Player *player, const char *interface_name,
       // FIXME: new value of Tracks property is not sent in PropertiesChanged
       // signal We may want to listen for TrackAdded, TrackRemoved and
       // TrackListReplaced
-      if (!player->playlists.supported)
+      if (!player->tracklist.supported)
         {
           g_warning (
               "Player %s doesn't appear to support interface %s, but sent "
@@ -210,15 +210,18 @@ player_update_properties (struct Player *player, const char *interface_name,
     }
   else
     {
-      g_error ("cannot update properties for unknown interface: %s",
-               interface_name);
-      assert (false);
+      // a misbehaving player must not take the daemon down
+      // (altdesktop/playerctl#268)
+      g_warning ("cannot update properties for unknown interface: %s",
+                 interface_name);
+      return FALSE;
     }
   if (!g_variant_is_of_type (properties, G_VARIANT_TYPE_VARDICT))
     {
-      g_error ("cannot update properties with unknown type: %s",
-               g_variant_get_type_string (properties));
-      assert (false);
+      g_warning ("cannot update properties with unknown type: %s",
+                 g_variant_get_type_string (properties));
+      g_variant_dict_clear (&cached_properties);
+      return FALSE;
     }
   g_variant_iter_init (&iter, properties);
 
