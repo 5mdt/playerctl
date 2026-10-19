@@ -60,41 +60,50 @@
  * For examples on how to use the #PlayerctlPlayer, see the `examples`
  * directory in the git repository.
  */
-#define PLAYERCTL_TYPE_PLAYER (playerctl_player_get_type())
-#define PLAYERCTL_PLAYER(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), PLAYERCTL_TYPE_PLAYER, PlayerctlPlayer))
-#define PLAYERCTL_IS_PLAYER(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), PLAYERCTL_TYPE_PLAYER))
-#define PLAYERCTL_PLAYER_CLASS(klass) \
-    (G_TYPE_CHECK_CLASS_CAST((klass), PLAYERCTL_TYPE_PLAYER, PlayerctlPlayerClass))
-#define PLAYERCTL_IS_PLAYER_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), PLAYERCTL_TYPE_PLAYER))
-#define PLAYERCTL_PLAYER_GET_CLASS(obj) \
-    (G_TYPE_INSTANCE_GET_CLASS((obj), PLAYERCTL_TYPE_PLAYER, PlayerctlPlayerClass))
+#define PLAYERCTL_TYPE_PLAYER (playerctl_player_get_type ())
+#define PLAYERCTL_PLAYER(obj)                                                 \
+  (G_TYPE_CHECK_INSTANCE_CAST ((obj), PLAYERCTL_TYPE_PLAYER, PlayerctlPlayer))
+#define PLAYERCTL_IS_PLAYER(obj)                                              \
+  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), PLAYERCTL_TYPE_PLAYER))
+#define PLAYERCTL_PLAYER_CLASS(klass)                                         \
+  (G_TYPE_CHECK_CLASS_CAST ((klass), PLAYERCTL_TYPE_PLAYER,                   \
+                            PlayerctlPlayerClass))
+#define PLAYERCTL_IS_PLAYER_CLASS(klass)                                      \
+  (G_TYPE_CHECK_CLASS_TYPE ((klass), PLAYERCTL_TYPE_PLAYER))
+#define PLAYERCTL_PLAYER_GET_CLASS(obj)                                       \
+  (G_TYPE_INSTANCE_GET_CLASS ((obj), PLAYERCTL_TYPE_PLAYER,                   \
+                              PlayerctlPlayerClass))
 
 typedef struct _PlayerctlPlayer PlayerctlPlayer;
 typedef struct _PlayerctlPlayerClass PlayerctlPlayerClass;
 typedef struct _PlayerctlPlayerPrivate PlayerctlPlayerPrivate;
 
-struct _PlayerctlPlayer {
-    /* Parent instance structure */
-    GObject parent_instance;
+struct _PlayerctlPlayer
+{
+  /* Parent instance structure */
+  GObject parent_instance;
 
-    /* Private members */
-    PlayerctlPlayerPrivate *priv;
+  /* Private members */
+  PlayerctlPlayerPrivate *priv;
 };
 
-struct _PlayerctlPlayerClass {
-    /* Parent class structure */
-    GObjectClass parent_class;
+struct _PlayerctlPlayerClass
+{
+  /* Parent class structure */
+  GObjectClass parent_class;
 };
 
-GType playerctl_player_get_type(void);
+GType playerctl_player_get_type (void);
 
-PlayerctlPlayer *playerctl_player_new(const gchar *player_name, GError **err);
+PlayerctlPlayer *playerctl_player_new (const gchar *player_name, GError **err);
 
-PlayerctlPlayer *playerctl_player_new_for_source(const gchar *player_name, PlayerctlSource source,
-                                                 GError **err);
+PlayerctlPlayer *playerctl_player_new_for_source (const gchar *player_name,
+                                                  PlayerctlSource source,
+                                                  GError **err);
 
-PlayerctlPlayer *playerctl_player_new_from_name(PlayerctlPlayerName *player_name, GError **err);
+PlayerctlPlayer *
+playerctl_player_new_from_name (PlayerctlPlayerName *player_name,
+                                GError **err);
 
 /**
  * PlayerctlPlaybackStatus:
@@ -105,74 +114,84 @@ PlayerctlPlayer *playerctl_player_new_from_name(PlayerctlPlayerName *player_name
  * Playback status enumeration for a #PlayerctlPlayer
  *
  */
-typedef enum {
-    PLAYERCTL_PLAYBACK_STATUS_PLAYING, /*< nick=Playing >*/
-    PLAYERCTL_PLAYBACK_STATUS_PAUSED,  /*< nick=Paused >*/
-    PLAYERCTL_PLAYBACK_STATUS_STOPPED, /*< nick=Stopped >*/
+typedef enum
+{
+  PLAYERCTL_PLAYBACK_STATUS_PLAYING, /*< nick=Playing >*/
+  PLAYERCTL_PLAYBACK_STATUS_PAUSED,  /*< nick=Paused >*/
+  PLAYERCTL_PLAYBACK_STATUS_STOPPED, /*< nick=Stopped >*/
 } PlayerctlPlaybackStatus;
 
 /**
  * PlayerctlLoopStatus:
- * @PLAYERCTL_LOOP_STATUS_NONE: The playback will stop when there are no more tracks to play.
- * @PLAYERCTL_LOOP_STATUS_TRACK: The current track will start again from the beginning once it has
- * finished playing.
- * @PLAYERCTL_LOOP_STATUS_PLAYLIST: The playback loops through a list of tracks.
+ * @PLAYERCTL_LOOP_STATUS_NONE: The playback will stop when there are no more
+ * tracks to play.
+ * @PLAYERCTL_LOOP_STATUS_TRACK: The current track will start again from the
+ * beginning once it has finished playing.
+ * @PLAYERCTL_LOOP_STATUS_PLAYLIST: The playback loops through a list of
+ * tracks.
  *
  * Loop status enumeration for a #PlayerctlPlayer
  *
  */
-typedef enum {
-    PLAYERCTL_LOOP_STATUS_NONE,     /*< nick=None >*/
-    PLAYERCTL_LOOP_STATUS_TRACK,    /*< nick=Track >*/
-    PLAYERCTL_LOOP_STATUS_PLAYLIST, /* nick=Playlist >*/
+typedef enum
+{
+  PLAYERCTL_LOOP_STATUS_NONE,     /*< nick=None >*/
+  PLAYERCTL_LOOP_STATUS_TRACK,    /*< nick=Track >*/
+  PLAYERCTL_LOOP_STATUS_PLAYLIST, /* nick=Playlist >*/
 } PlayerctlLoopStatus;
 
 /*
  * Static methods
  */
-GList *playerctl_list_players(GError **err);
+GList *playerctl_list_players (GError **err);
 
 /*
  * Method definitions.
  */
 
-void playerctl_player_on(PlayerctlPlayer *self, const gchar *event, GClosure *callback,
-                         GError **err);
+void playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
+                          GClosure *callback, GError **err);
 
-void playerctl_player_open(PlayerctlPlayer *self, gchar *uri, GError **err);
+void playerctl_player_open (PlayerctlPlayer *self, gchar *uri, GError **err);
 
-void playerctl_player_play_pause(PlayerctlPlayer *self, GError **err);
+void playerctl_player_play_pause (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_play(PlayerctlPlayer *self, GError **err);
+void playerctl_player_play (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_stop(PlayerctlPlayer *self, GError **err);
+void playerctl_player_stop (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_seek(PlayerctlPlayer *self, gint64 offset, GError **err);
+void playerctl_player_seek (PlayerctlPlayer *self, gint64 offset,
+                            GError **err);
 
-void playerctl_player_pause(PlayerctlPlayer *self, GError **err);
+void playerctl_player_pause (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_next(PlayerctlPlayer *self, GError **err);
+void playerctl_player_next (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_previous(PlayerctlPlayer *self, GError **err);
+void playerctl_player_previous (PlayerctlPlayer *self, GError **err);
 
-gchar *playerctl_player_print_metadata_prop(PlayerctlPlayer *self, const gchar *property,
-                                            GError **err);
+gchar *playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
+                                             const gchar *property,
+                                             GError **err);
 
-gchar *playerctl_player_get_artist(PlayerctlPlayer *self, GError **err);
+gchar *playerctl_player_get_artist (PlayerctlPlayer *self, GError **err);
 
-gchar *playerctl_player_get_title(PlayerctlPlayer *self, GError **err);
+gchar *playerctl_player_get_title (PlayerctlPlayer *self, GError **err);
 
-gchar *playerctl_player_get_album(PlayerctlPlayer *self, GError **err);
+gchar *playerctl_player_get_album (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_set_volume(PlayerctlPlayer *self, gdouble volume, GError **err);
+void playerctl_player_set_volume (PlayerctlPlayer *self, gdouble volume,
+                                  GError **err);
 
-gint64 playerctl_player_get_position(PlayerctlPlayer *self, GError **err);
+gint64 playerctl_player_get_position (PlayerctlPlayer *self, GError **err);
 
-void playerctl_player_set_position(PlayerctlPlayer *self, gint64 position, GError **err);
+void playerctl_player_set_position (PlayerctlPlayer *self, gint64 position,
+                                    GError **err);
 
-void playerctl_player_set_loop_status(PlayerctlPlayer *self, PlayerctlLoopStatus status,
-                                      GError **err);
+void playerctl_player_set_loop_status (PlayerctlPlayer *self,
+                                       PlayerctlLoopStatus status,
+                                       GError **err);
 
-void playerctl_player_set_shuffle(PlayerctlPlayer *self, gboolean shuffle, GError **err);
+void playerctl_player_set_shuffle (PlayerctlPlayer *self, gboolean shuffle,
+                                   GError **err);
 
 #endif /* __PLAYERCTL_PLAYER_H__ */

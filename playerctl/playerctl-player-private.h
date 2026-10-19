@@ -22,12 +22,15 @@
 
 #include "playerctl-player.h"
 
-char *pctl_player_get_instance(PlayerctlPlayer *player);
+char *pctl_player_get_instance (PlayerctlPlayer *player);
 
-gint player_name_string_compare_func(gconstpointer a, gconstpointer b, gpointer user_data);
+gint player_name_string_compare_func (gconstpointer a, gconstpointer b,
+                                      gpointer user_data);
 
-gint player_name_compare_func(gconstpointer a, gconstpointer b, gpointer user_data);
+gint player_name_compare_func (gconstpointer a, gconstpointer b,
+                               gpointer user_data);
 
-gint player_compare_func(gconstpointer a, gconstpointer b, gpointer user_data);
+gint player_compare_func (gconstpointer a, gconstpointer b,
+                          gpointer user_data);
 
 #endif /* __PLAYERCTL_PLAYER_PRIVATE_H__ */

@@ -56,47 +56,54 @@
  * For examples on how to use the manager, see the `examples` folder in the git
  * repository.
  */
-#define PLAYERCTL_TYPE_PLAYER_MANAGER (playerctl_player_manager_get_type())
-#define PLAYERCTL_PLAYER_MANAGER(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), PLAYERCTL_TYPE_PLAYER_MANAGER, PlayerctlPlayerManager))
-#define PLAYERCTL_IS_PLAYER_MANAGER(obj) \
-    (G_TYPE_CHECK_INSTANCE_TYPE((obj), PLAYERCTL_TYPE_PLAYER_MANAGER))
-#define PLAYERCTL_PLAYER_MANAGER_CLASS(klass) \
-    (G_TYPE_CHECK_CLASS_CAST((klass), PLAYERCTL_TYPE_PLAYER_MANAGER, PlayerctlPlayerManagerClass))
-#define PLAYERCTL_IS_PLAYER_MANAGER_CLASS(klass) \
-    (G_TYPE_CHECK_CLASS_TYPE((klass), PLAYERCTL_TYPE_PLAYER_MANAGER))
-#define PLAYERCTL_PLAYER_MANAGER_GET_CLASS(obj) \
-    (G_TYPE_INSTANCE_GET_CLASS((obj), PLAYERCTL_TYPE_PLAYER_MANAGER, PlayerctlPlayerManagerClass))
+#define PLAYERCTL_TYPE_PLAYER_MANAGER (playerctl_player_manager_get_type ())
+#define PLAYERCTL_PLAYER_MANAGER(obj)                                         \
+  (G_TYPE_CHECK_INSTANCE_CAST ((obj), PLAYERCTL_TYPE_PLAYER_MANAGER,          \
+                               PlayerctlPlayerManager))
+#define PLAYERCTL_IS_PLAYER_MANAGER(obj)                                      \
+  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), PLAYERCTL_TYPE_PLAYER_MANAGER))
+#define PLAYERCTL_PLAYER_MANAGER_CLASS(klass)                                 \
+  (G_TYPE_CHECK_CLASS_CAST ((klass), PLAYERCTL_TYPE_PLAYER_MANAGER,           \
+                            PlayerctlPlayerManagerClass))
+#define PLAYERCTL_IS_PLAYER_MANAGER_CLASS(klass)                              \
+  (G_TYPE_CHECK_CLASS_TYPE ((klass), PLAYERCTL_TYPE_PLAYER_MANAGER))
+#define PLAYERCTL_PLAYER_MANAGER_GET_CLASS(obj)                               \
+  (G_TYPE_INSTANCE_GET_CLASS ((obj), PLAYERCTL_TYPE_PLAYER_MANAGER,           \
+                              PlayerctlPlayerManagerClass))
 
 typedef struct _PlayerctlPlayerManager PlayerctlPlayerManager;
 typedef struct _PlayerctlPlayerManagerClass PlayerctlPlayerManagerClass;
 typedef struct _PlayerctlPlayerManagerPrivate PlayerctlPlayerManagerPrivate;
 
-struct _PlayerctlPlayerManager {
-    /* Parent instance structure */
-    GObject parent_instance;
+struct _PlayerctlPlayerManager
+{
+  /* Parent instance structure */
+  GObject parent_instance;
 
-    /* Private members */
-    PlayerctlPlayerManagerPrivate *priv;
+  /* Private members */
+  PlayerctlPlayerManagerPrivate *priv;
 };
 
-struct _PlayerctlPlayerManagerClass {
-    /* Parent class structure */
-    GObjectClass parent_class;
+struct _PlayerctlPlayerManagerClass
+{
+  /* Parent class structure */
+  GObjectClass parent_class;
 };
 
-GType playerctl_player_manager_get_type(void);
+GType playerctl_player_manager_get_type (void);
 
-PlayerctlPlayerManager *playerctl_player_manager_new(GError **err);
+PlayerctlPlayerManager *playerctl_player_manager_new (GError **err);
 
-void playerctl_player_manager_manage_player(PlayerctlPlayerManager *manager,
-                                            PlayerctlPlayer *player);
+void playerctl_player_manager_manage_player (PlayerctlPlayerManager *manager,
+                                             PlayerctlPlayer *player);
 
-void playerctl_player_manager_set_sort_func(PlayerctlPlayerManager *manager,
-                                            GCompareDataFunc sort_func, gpointer sort_data,
-                                            GDestroyNotify notify);
+void playerctl_player_manager_set_sort_func (PlayerctlPlayerManager *manager,
+                                             GCompareDataFunc sort_func,
+                                             gpointer sort_data,
+                                             GDestroyNotify notify);
 
-void playerctl_player_manager_move_player_to_top(PlayerctlPlayerManager *manager,
-                                                 PlayerctlPlayer *player);
+void
+playerctl_player_manager_move_player_to_top (PlayerctlPlayerManager *manager,
+                                             PlayerctlPlayer *player);
 
 #endif /* __PLAYERCTL_PLAYER_MANAGER_H__ */
