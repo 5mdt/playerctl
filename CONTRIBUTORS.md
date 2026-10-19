@@ -21,6 +21,6 @@ A list of contributors to playerctl, sorted alphabetically on last names. Please
 - Dan Printzell xwildn00bx@gmail.com
 - Dov Salomon dsalomon@nyu.edu
 - sentriz senan@senan.xyz
-- Pedro Alves pta2002@pta2002.com Tony Crisci tony@dubstepdish.com Jente Hidskes hjdskes@gmail.com Nick Morrott knowledgejunkie@gmail.com Rasmus Thomsen cogitri@exherbo.org
+- Rasmus Thomsen cogitri@exherbo.org
 - Sudaraka Wijesinghe sudaraka@sudaraka.org
 - xdavidwu xdavidwuph@gmail.com
