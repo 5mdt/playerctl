@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+# shellcheck shell=bash
+# Sourced by bash-completion, not executed: no shebang.
 
 _playerctl_completions() {
 	local cur="${COMP_WORDS[$COMP_CWORD]}"

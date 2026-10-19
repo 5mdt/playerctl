@@ -1,0 +1,85 @@
+---
+name: Packages
+'on':
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: null
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the source tarball and check its contents
+        run: make dist dist-check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: build/dist
+  packages:
+    needs: dist
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+        distro:
+          - fedora-43
+          - fedora-44
+          - opensuse-tumbleweed
+          - opensuse-leap
+          - debian-12
+          - debian-13
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
+          - arch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: build/dist
+      - name: Build, lint and install-test the package in a ${{ matrix.distro }} container
+        run: make package package-lint package-test DISTRO=${{ matrix.distro }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.distro }}-${{ matrix.runner }}
+          path: build/packages
+  release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: build/dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: build/packages
+          merge-multiple: true
+      - name: Collect the release files
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: make release-assets
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v header="## Version ${version}" '$0 == header {found = 1; next} /^## / {found = 0} found' \
+            doc/CHANGELOG.md > build/notes.md
+          prerelease=
+          if [[ ${version} == *-* ]]; then prerelease=--prerelease; fi
+          gh release create "${GITHUB_REF_NAME}" build/release/* \
+            --title "Playerctl ${version}" --notes-file build/notes.md ${prerelease}

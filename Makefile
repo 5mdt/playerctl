@@ -1,4 +1,5 @@
 .PHONY: contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
+	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
 	lint lint-py lint-c lint-sh
@@ -8,7 +9,7 @@ FORMAT_C_SOURCE = $(shell find playerctl | grep \.[ch]$)
 PY_DIRS = test examples scripts
 YAML_SOURCE = $(shell find . \( -name build -o -name .venv -o -name .git \) -prune -o \( -name '*.yml' -o -name '*.yaml' \) -type f -print)
 MD_SOURCE = $(shell find . \( -name build -o -name .venv -o -name .git \) -prune -o -name '*.md' ! -name LICENSE.md -type f -print)
-SH_SOURCE = fpm-packages.sh data/playerctl.bash
+SH_SOURCE = data/playerctl.bash $(wildcard scripts/*.sh)
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*## "; print "Usage: make [target]\n\nTargets:"} /^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
@@ -30,7 +31,7 @@ ifeq ($(CONTAINER),1)
 ifeq ($(notdir $(CONTAINER_ENGINE)),docker)
 CONTAINER_USER = --user $(shell id -u):$(shell id -g) -e HOME=/tmp
 endif
-RUN = $(CONTAINER_ENGINE) run --rm $(CONTAINER_USER) -v "$(CURDIR)":/src:Z -w /src $(DEV_IMAGE)
+RUN = $(CONTAINER_ENGINE) run --rm $(CONTAINER_USER) $(RUN_ARGS) -v "$(CURDIR)":/src:Z -w /src $(DEV_IMAGE)
 DEV_DEPS = dev-image
 BUILD_DIR = build/container
 # $(call need,tool...): what a target requires in the current mode
@@ -60,6 +61,104 @@ docs: build ## build the API docs (HTML in build/container/doc/reference/html, o
 	$(RUN) uv run meson compile -C $(BUILD_DIR) doc/reference/playerctl-doc:alias
 	@test -f $(BUILD_DIR)/doc/reference/html/index.html || { echo "No docs generated in $(BUILD_DIR)/doc/reference/html" >&2; exit 1; }
 	@echo "API docs: $(BUILD_DIR)/doc/reference/html/index.html"
+
+# Packaging: the supported releases of each distribution (Debian 12 and the
+# Ubuntu LTS releases are in long term support). Everything runs in containers: the tarball in the tooling image,
+# each package in a container of the distro it is for (podman or docker).
+# Output: build/dist (tarball), build/packages/<distro>-<arch>, build/release.
+VERSION = $(shell sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
+DIST_DIR = build/dist
+PKG_DIR = build/packages
+RELEASE_DIR = build/release
+TARBALL = $(DIST_DIR)/playerctl-$(VERSION).tar.xz
+PKG_ARCH = $(patsubst arm64,aarch64,$(shell uname -m))
+
+PKG_DISTROS = fedora-43 fedora-44 opensuse-tumbleweed opensuse-leap debian-12 debian-13 ubuntu-22.04 ubuntu-24.04 ubuntu-26.04 arch
+IMAGE_fedora-43 = registry.fedoraproject.org/fedora:43
+IMAGE_fedora-44 = registry.fedoraproject.org/fedora:44
+IMAGE_opensuse-tumbleweed = registry.opensuse.org/opensuse/tumbleweed:latest
+IMAGE_opensuse-leap = registry.opensuse.org/opensuse/leap:16.0
+IMAGE_debian-12 = docker.io/library/debian:12
+IMAGE_debian-13 = docker.io/library/debian:13
+IMAGE_ubuntu-22.04 = docker.io/library/ubuntu:22.04
+IMAGE_ubuntu-24.04 = docker.io/library/ubuntu:24.04
+IMAGE_ubuntu-26.04 = docker.io/library/ubuntu:26.04
+# There is no official Arch Linux ARM image, use the community one on aarch64
+IMAGE_arch_x86_64 = docker.io/library/archlinux:latest
+IMAGE_arch_aarch64 = docker.io/menci/archlinuxarm:latest
+IMAGE_arch = $(IMAGE_arch_$(PKG_ARCH))
+TYPE_fedora-43 = rpm
+TYPE_fedora-44 = rpm
+TYPE_opensuse-tumbleweed = rpm
+TYPE_opensuse-leap = rpm
+TYPE_debian-12 = deb
+TYPE_debian-13 = deb
+TYPE_ubuntu-22.04 = deb
+TYPE_ubuntu-24.04 = deb
+TYPE_ubuntu-26.04 = deb
+TYPE_arch = arch
+
+DISTRO ?=
+distro_image = $(or $(IMAGE_$(DISTRO)),$(error set DISTRO to one of: $(PKG_DISTROS)))
+distro_dir = $(PKG_DIR)/$(DISTRO)-$(PKG_ARCH)
+
+# Docker runs as real root: let package-build.sh hand the files back
+ifeq ($(notdir $(CONTAINER_ENGINE)),docker)
+PKG_USER_ENV = -e HOST_UID=$(shell id -u) -e HOST_GID=$(shell id -g)
+endif
+
+# meson dist reads the git history. In a git worktree .git is a file pointing
+# outside the checkout, so the git directory is mounted as well.
+DIST_FLAGS ?=
+ifeq ($(CONTAINER),1)
+GIT_COMMON_DIR = $(shell git rev-parse --path-format=absolute --git-common-dir)
+RUN_GIT = $(CONTAINER_ENGINE) run --rm $(CONTAINER_USER) \
+	-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+	-v "$(CURDIR)":/src:Z -v "$(GIT_COMMON_DIR)":"$(GIT_COMMON_DIR)":ro,z -w /src $(DEV_IMAGE)
+else
+RUN_GIT =
+endif
+
+dist: build ## build the source tarball (meson dist, only the files needed to build it) in build/dist; DIST_FLAGS=--allow-dirty for uncommitted changes
+	rm -rf $(DIST_DIR) $(BUILD_DIR)/meson-dist
+	mkdir -p $(DIST_DIR)
+	$(RUN_GIT) uv run meson dist -C $(BUILD_DIR) --formats xztar --no-tests $(DIST_FLAGS)
+	cp $(BUILD_DIR)/meson-dist/playerctl-$(VERSION).tar.xz* $(DIST_DIR)/
+
+dist-check: $(DEV_DEPS) ## fail if the tarball in build/dist holds files outside the allowlist
+	$(RUN) scripts/dist-check.sh $(TARBALL)
+
+package: ## build the package for DISTRO from the tarball in build/dist, in that distro's container into build/packages (DISTRO: see PKG_DISTROS)
+	$(call require,$(CONTAINER_ENGINE))
+	@test -f $(TARBALL) || { echo "No $(TARBALL), run make dist first" >&2; exit 1; }
+	$(CONTAINER_ENGINE) run --rm $(PKG_USER_ENV) -v "$(CURDIR)":/src:z -w /src $(distro_image) \
+		scripts/package-build.sh $(TYPE_$(DISTRO)) $(TARBALL) $(distro_dir)
+
+packages: dist ## build the packages for every distro in PKG_DISTROS
+	@failed=; for d in $(PKG_DISTROS); do $(MAKE) package DISTRO=$$d || failed="$$failed $$d"; done; \
+	test -z "$$failed" || { echo "Failed:$$failed" >&2; exit 1; }
+
+package-lint: ## lint the packages built for DISTRO (rpmlint, lintian or namcap, in that distro's container)
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/scripts":/scripts:ro,z -v "$(CURDIR)/$(distro_dir)":/pkgs:ro,z \
+		$(distro_image) /scripts/package-lint.sh /pkgs
+
+packages-lint: ## lint the packages of every distro in PKG_DISTROS
+	@failed=; for d in $(PKG_DISTROS); do $(MAKE) package-lint DISTRO=$$d || failed="$$failed $$d"; done; \
+	test -z "$$failed" || { echo "Failed:$$failed" >&2; exit 1; }
+
+package-test: ## install the packages built for DISTRO in a fresh container of that distro and check them
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/scripts":/scripts:ro,z -v "$(CURDIR)/$(distro_dir)":/pkgs:ro,z \
+		$(distro_image) /scripts/package-test.sh /pkgs $(VERSION)
+
+packages-test: ## install-test the packages of every distro in PKG_DISTROS
+	@failed=; for d in $(PKG_DISTROS); do $(MAKE) package-test DISTRO=$$d || failed="$$failed $$d"; done; \
+	test -z "$$failed" || { echo "Failed:$$failed" >&2; exit 1; }
+
+release-assets: RUN_ARGS = -e GPG_PRIVATE_KEY
+release-assets: $(DEV_DEPS) ## collect tarball, packages and SHA256SUMS in build/release (signed if GPG_PRIVATE_KEY is set)
+	$(RUN) scripts/release-assets.sh $(DIST_DIR) $(PKG_DIR) $(RELEASE_DIR)
 
 test-local: ## build with meson on the host (CONTAINER=0), then run the pytest suite against ./build (needs glib dev packages and dbus-run-session)
 	$(call require,uv dbus-run-session)

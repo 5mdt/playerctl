@@ -20,7 +20,9 @@ FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
 RUN dnf install -y --setopt=install_weak_deps=False \
         gcc \
+        git-core \
         glib2-devel \
+        gnupg2 \
         gobject-introspection-devel \
         gtk-doc \
         make \
@@ -28,6 +30,8 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         ninja-build \
         python3 \
         ShellCheck \
+        tar \
+        xz \
     && dnf clean all
 
 COPY --from=uv /uv /usr/local/bin/uv

@@ -1,0 +1,60 @@
+Source: playerctl
+Section: utils
+Priority: optional
+Maintainer: Vladimir Budylnikov <github@nett00n.org>
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/5mdt/playerctl
+Build-Depends:
+ debhelper-compat (= 13),
+ bash-completion,
+ gir1.2-glib-2.0,
+ gobject-introspection,
+ libgirepository1.0-dev | libgirepository-2.0-dev,
+ libglib2.0-dev,
+ meson (>= 0.56.0),
+ pkgconf | pkg-config,
+
+Package: playerctl
+Architecture: any
+Depends: libplayerctl2 (= ${binary:Version}), ${misc:Depends}, ${shlibs:Depends}
+Description: command-line utility for controlling media players
+ Playerctl controls media players that implement the MPRIS D-Bus interface.
+ It makes it easy to bind player actions, such as play and pause, to media
+ keys, and to get metadata about the playing track for status bars and other
+ tools. The playerctld daemon acts on the currently active media player.
+
+Package: libplayerctl2
+Section: libs
+Architecture: any
+Multi-Arch: same
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: library for controlling media players (shared library)
+ Playerctl library for controlling media players that implement the MPRIS
+ D-Bus interface.
+ .
+ This package contains the shared library.
+
+Package: gir1.2-playerctl-2.0
+Section: introspection
+Architecture: any
+Multi-Arch: same
+Depends: ${gir:Depends}, ${misc:Depends}, gir1.2-glib-2.0
+Description: GObject introspection data for Playerctl
+ Playerctl library for controlling media players that implement the MPRIS
+ D-Bus interface.
+ .
+ This package contains the GObject introspection data.
+
+Package: libplayerctl-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: libplayerctl2 (= ${binary:Version}), gir1.2-playerctl-2.0 (= ${binary:Version}), libglib2.0-dev, ${misc:Depends}
+Description: library for controlling media players (development files)
+ Playerctl library for controlling media players that implement the MPRIS
+ D-Bus interface.
+ .
+ This package contains the headers, pkg-config file and GObject introspection
+ source for developing against the library.

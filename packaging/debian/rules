@@ -1,0 +1,7 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --buildsystem=meson
+
+override_dh_auto_configure:
+	dh_auto_configure -- -Dgtk-doc=false -Dbash-completions=true -Dzsh-completions=true -Dtests=false
