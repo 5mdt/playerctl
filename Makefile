@@ -1,4 +1,4 @@
-.PHONY: manifests manifests-sync manifests-check contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -83,6 +83,8 @@ endif
 DISTRO ?=
 distro_image = $(or $(IMAGE_$(DISTRO)),$(error set DISTRO to one of: $(PKG_DISTROS)))
 distro_dir = $(PKG_DIR)/$(DISTRO)-$(PKG_ARCH)
+# the name of the DISTRO packages in the release and in the CI artifacts
+package_slug = playerctl-$(or $(SLUG_$(DISTRO)),$(error set DISTRO to one of: $(PKG_DISTROS)))-$(PKG_ARCH)
 
 # Docker runs as real root: let package-build.sh hand the files back
 ifeq ($(notdir $(CONTAINER_ENGINE)),docker)
@@ -117,6 +119,59 @@ dist-check: $(DEV_DEPS) ## fail if the tarball in build/dist holds files outside
 
 MANIFEST_SOURCES = packaging/package.yaml $(shell find packaging/templates -type f) scripts/render-packaging.py doc/CHANGELOG.md
 
+PKG_VERSION = $(shell sed -n "s/^version: *['\"]*\([^'\"]*\)['\"]*$$/\1/p" packaging/package.yaml)
+
+version: ## print the version from packaging/package.yaml
+	@echo $(PKG_VERSION)
+
+tag: ## create the v<version> tag on HEAD from packaging/package.yaml (skips an existing tag; PUSH=1 also pushes it)
+	@test -n "$(PKG_VERSION)" || { echo "no version in packaging/package.yaml" >&2; exit 1; }
+	@if git rev-parse -q --verify "refs/tags/v$(PKG_VERSION)" >/dev/null; then \
+		echo "tag v$(PKG_VERSION) exists, nothing to do"; \
+	else \
+		git tag -a "v$(PKG_VERSION)" -m "playerctl $(PKG_VERSION)" && echo "created tag v$(PKG_VERSION)"; \
+		if [ -n "$(PUSH)" ]; then git push origin "v$(PKG_VERSION)"; fi; \
+	fi
+
+tag-rc: ## create the next v<version>-rc<N> tag on HEAD (release candidate; skips HEAD that has one, fails once v<version> exists or without its section in doc/CHANGELOG.md; PUSH=1 also pushes it)
+	@test -n "$(PKG_VERSION)" || { echo "no version in packaging/package.yaml" >&2; exit 1; }
+	@if git rev-parse -q --verify "refs/tags/v$(PKG_VERSION)" >/dev/null; then \
+		echo "v$(PKG_VERSION) is released, bump the version in packaging/package.yaml" >&2; exit 1; \
+	fi
+	@grep -qxF "## Version $(PKG_VERSION)" doc/CHANGELOG.md || { echo "no \"## Version $(PKG_VERSION)\" section in doc/CHANGELOG.md" >&2; exit 1; }
+	@existing=$$(git tag --points-at HEAD --list "v$(PKG_VERSION)-rc*"); \
+	if [ -n "$$existing" ]; then echo "HEAD is already tagged $$existing, nothing to do"; exit 0; fi; \
+	last=$$(git tag --list "v$(PKG_VERSION)-rc*" | sed "s/.*-rc//" | sort -n | tail -n1); \
+	tag="v$(PKG_VERSION)-rc$$(( $${last:-0} + 1 ))"; \
+	git tag -a "$$tag" -m "playerctl $${tag#v}" && echo "created tag $$tag" && \
+	if [ -n "$(PUSH)" ]; then git push origin "$$tag"; fi
+
+RELEASE_BASE ?= origin/main
+RELEASE_DEVELOP ?= origin/develop
+
+# the commit holds exactly the tree of the rc, on top of main: no merge conflicts, and main ends up identical to the rc
+release: ## squash the release candidate RC (default: the latest one of develop's version) onto main as one commit and tag it v<version> (dry run unless PUSH=1)
+	@set -e; \
+	rc="$(RC)"; \
+	if [ -z "$$rc" ]; then \
+		version=$$(git show "$(RELEASE_DEVELOP):packaging/package.yaml" | sed -n "s/^version: *['\"]*\([^'\"]*\)['\"]*$$/\1/p"); \
+		rc=$$(git tag --list "v$$version-rc*" | sort -t c -k 2 -n | tail -n1); \
+		test -n "$$rc" || { echo "no v$$version-rc* tag, run Tag RC first" >&2; exit 1; }; \
+	fi; \
+	git rev-parse -q --verify "refs/tags/$$rc" >/dev/null || { echo "no tag $$rc" >&2; exit 1; }; \
+	version=$$(git show "$$rc:packaging/package.yaml" | sed -n "s/^version: *['\"]*\([^'\"]*\)['\"]*$$/\1/p"); \
+	test -n "$$version" || { echo "no version in packaging/package.yaml of $$rc" >&2; exit 1; }; \
+	if git rev-parse -q --verify "refs/tags/v$$version" >/dev/null; then \
+		echo "v$$version is released, bump the version in packaging/package.yaml" >&2; exit 1; \
+	fi; \
+	commit=$$(git commit-tree "$$rc^{tree}" -p "$(RELEASE_BASE)" -m "Release v$$version ($$rc)"); \
+	echo "rc $$rc"; echo "release commit $$commit"; \
+	if [ -z "$(PUSH)" ]; then echo "dry run: would push the commit to main and tag v$$version (PUSH=1)"; exit 0; fi; \
+	git push origin "$$commit:refs/heads/main"; \
+	git tag -a "v$$version" -m "playerctl $$version" "$$commit"; \
+	git push origin "v$$version"; \
+	echo "created tag v$$version"
+
 manifests: $(DEV_DEPS) ## render the package manifests from packaging/package.yaml and packaging/templates into build/packaging
 	$(call require,$(call need,uv))
 	$(RUN_GIT) uv run --group packaging scripts/render-packaging.py --out $(PKG_GEN_DIR)
@@ -133,6 +188,9 @@ manifests-check: $(DEV_DEPS) ## fail if the version copies or the distro table i
 # missing or older than its sources
 $(PKG_GEN_DIR)/distros.mk: $(MANIFEST_SOURCES)
 	$(MAKE) manifests
+
+package-slug: ## print the name of the packages built for DISTRO in the release and the CI artifacts, e.g. playerctl-fedora-43-x86_64
+	@echo $(package_slug)
 
 package: ## build the package for DISTRO from the tarball in build/dist, in that distro's container into build/packages (DISTRO: see PKG_DISTROS)
 	$(call require,$(CONTAINER_ENGINE))

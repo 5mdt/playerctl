@@ -2,7 +2,7 @@
 
 <!-- Badges: project status -->
 
-[![CI](https://github.com/5mdt/playerctl/actions/workflows/ci.yml/badge.svg)](https://github.com/5mdt/playerctl/actions/workflows/ci.yml) [![Docs](https://github.com/5mdt/playerctl/actions/workflows/docs.yml/badge.svg)](https://5mdt.github.io/playerctl/) [![codecov](https://codecov.io/gh/5mdt/playerctl/graph/badge.svg)](https://codecov.io/gh/5mdt/playerctl) [![Latest tag](https://img.shields.io/github/v/tag/5mdt/playerctl)](https://github.com/5mdt/playerctl/tags) [![License: LGPL v3](https://img.shields.io/badge/license-LGPL--3.0-blue)](LICENSE.md)
+[![CI](https://github.com/5mdt/playerctl/actions/workflows/ci.yml/badge.svg)](https://github.com/5mdt/playerctl/actions/workflows/ci.yml) [![Docs](https://github.com/5mdt/playerctl/actions/workflows/docs.yml/badge.svg)](https://5mdt.github.io/playerctl/) [![codecov](https://codecov.io/gh/5mdt/playerctl/branch/develop/graph/badge.svg)](https://codecov.io/gh/5mdt/playerctl/tree/develop) [![Latest tag](https://img.shields.io/github/v/tag/5mdt/playerctl)](https://github.com/5mdt/playerctl/tags) [![License: LGPL v3](https://img.shields.io/badge/license-LGPL--3.0-blue)](LICENSE.md)
 
 <!-- Badges: build tooling -->
 
@@ -53,7 +53,7 @@ playerctl metadata --format '{{ artist }} - {{ title }}'
 
 ## Test coverage
 
-[![Coverage grid](https://codecov.io/gh/5mdt/playerctl/graphs/tree.svg)](https://codecov.io/gh/5mdt/playerctl) [![Coverage trend](https://codecov.io/gh/5mdt/playerctl/graphs/commits.svg)](https://codecov.io/gh/5mdt/playerctl/commits)
+[![Coverage grid](https://codecov.io/gh/5mdt/playerctl/branch/develop/graphs/tree.svg)](https://codecov.io/gh/5mdt/playerctl/tree/develop) [![Coverage trend](https://codecov.io/gh/5mdt/playerctl/branch/develop/graphs/commits.svg)](https://codecov.io/gh/5mdt/playerctl/commits/develop)
 
 <!-- Section: documentation index -->
 
@@ -65,6 +65,7 @@ playerctl metadata --format '{{ artist }} - {{ title }}'
 - [Using the library](doc/library.md) - GObject introspection bindings and example scripts
 - [API reference](https://5mdt.github.io/playerctl/) - generated from the C sources
 - [Changelog](doc/CHANGELOG.md) - what changed in each release
+- [Releasing](doc/releasing.md) - release candidates and releases from the GitHub UI
 
 <!-- Section: external articles -->
 

@@ -1,0 +1,51 @@
+---
+name: Tag RC
+'on':
+  workflow_dispatch:
+    inputs:
+      skip_ci_check:
+        description: Tag even if CI has not passed on this commit
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  actions: write
+jobs:
+  tag-rc:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check that CI passed on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --event push \
+            --json conclusion --jq '[.[] | select(.conclusion == "success")] | length')
+          if [ "${passed}" -gt 0 ]; then
+            exit
+          fi
+          if [ "${{ inputs.skip_ci_check }}" = true ]; then
+            echo "::warning::CI has not passed on ${GITHUB_SHA}, tagging anyway"
+            echo "⚠️ Tagged without green CI on \`${GITHUB_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
+            exit
+          fi
+          echo "::error::CI has not passed on ${GITHUB_SHA}; tick 'Tag even if CI has not passed' to override"
+          exit 1
+      - name: Tag the release candidate
+        id: tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          make tag-rc PUSH=1 | tee "$RUNNER_TEMP/tag.log"
+          echo "tag=$(sed -n 's/^created tag //p' "$RUNNER_TEMP/tag.log")" >> "$GITHUB_OUTPUT"
+      - name: Build and publish the packages of the new tag
+        if: ${{ steps.tag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # tags pushed with GITHUB_TOKEN do not trigger packages.yml
+          gh workflow run packages.yml --ref "${{ steps.tag.outputs.tag }}"
+          echo "Tagged \`${{ steps.tag.outputs.tag }}\`, packages are building." >> "$GITHUB_STEP_SUMMARY"

@@ -52,9 +52,12 @@ jobs:
           path: build/packaging
       - name: Build, lint and install-test the package in a ${{ matrix.distro }} container
         run: make package package-lint package-test DISTRO=${{ matrix.distro }}
+      - name: Name the artifact like the release files
+        id: slug
+        run: echo "name=$(make -s package-slug DISTRO=${{ matrix.distro }})" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: packages-${{ matrix.distro }}-${{ matrix.runner }}
+          name: ${{ steps.slug.outputs.name }}
           path: build/packages
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -70,19 +73,24 @@ jobs:
           path: build/dist
       - uses: actions/download-artifact@v4
         with:
-          pattern: packages-*
+          pattern: playerctl-*
           path: build/packages
           merge-multiple: true
       - name: Collect the release files
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: make release-assets
-      - name: Create the release
+      - name: Create the release, or add the files to the one that exists
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=${GITHUB_REF_NAME#v}
-          awk -v header="## Version ${version}" '$0 == header {found = 1; next} /^## / {found = 0} found' \
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            # created by hand, for example as a draft: keep its title and notes
+            gh release upload "${GITHUB_REF_NAME}" build/release/* --clobber
+            exit
+          fi
+          awk -v header="## Version ${version%%-*}" '$0 == header {found = 1; next} /^## / {found = 0} found' \
             doc/CHANGELOG.md > build/notes.md
           prerelease=
           if [[ ${version} == *-* ]]; then prerelease=--prerelease; fi

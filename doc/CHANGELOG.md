@@ -4,9 +4,16 @@
 
 - Repo forked
 - D-Bus interface renamed to `org._5mdt.playerctld`. `com.github.altdesktop.playerctld` interface is still served, marked deprecated
-- Maint updates
-- Linters, formatters, etc
-- Dockerised everything
+- No API changes or business logic
+- Add Ruff, pytest, clang-tidy, and GNU11 standards; remove legacy lint configs.
+- Containerize CI and test runner with Docker/Podman.
+- Add Makefile targets.
+- Cover code with tests. Most of them fail now, i know.
+- Replace Travis CI with GitHub Actions.
+- Update coverage, docs, README, issue templates, contributors.
+- Apply formatting and GNU coding standards; make all files lint-compliant.
+- Fix CI scripts, URLs, interface names, API docs, and autocomplete inconsistencies.
+- Build packages, using single source of truth.
 
 ## Version 2.4.1
 

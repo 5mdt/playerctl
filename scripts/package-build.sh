@@ -60,7 +60,9 @@ build_deb() {
 }
 
 build_arch() {
-    pacman -Syu --noconfirm --needed base-devel
+    # Landlock, which pacman sandboxes downloads with, is not allowed in
+    # containers on CI runners
+    pacman -Syu --disable-sandbox --noconfirm --needed base-devel
     id builder > /dev/null 2>&1 || useradd -m builder
 
     cp "${manifests}/arch/PKGBUILD" "${work}/PKGBUILD"
@@ -69,7 +71,7 @@ build_arch() {
 
     local -a deps
     mapfile -t deps < <(bash -c 'source "$1"; printf "%s\n" "${depends[@]}" "${makedepends[@]}"' _ "${work}/PKGBUILD")
-    pacman -S --noconfirm --needed "${deps[@]}"
+    pacman -S --disable-sandbox --noconfirm --needed "${deps[@]}"
 
     su builder -c "cd '${work}' && makepkg --force --noconfirm"
     find "${work}" -maxdepth 1 -name '*.pkg.tar.*' ! -name '*-debug-*' -exec cp {} "${outdir}" \;

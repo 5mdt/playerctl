@@ -67,56 +67,77 @@ arch:
     - glib2-devel
     - gobject-introspection
     - meson
-# What `make package` builds, in this order. The release file names start with
-# the key. An image is one string, or one per CPU (uname -m, arm64 as aarch64).
-# The install command is completed with the files of the key and type.
+# What `make package` builds, in this order; DISTRO=<key>. The release files
+# and the CI artifacts are named playerctl-<name>-<version>-<cpu>. An image is
+# one string, or one per CPU (uname -m, arm64 as aarch64). The install command
+# is completed with the files of the distro and type.
 distros:
   fedora-43:
+    name: fedora
+    version: '43'
     title: Fedora 43
     type: rpm
     image: registry.fedoraproject.org/fedora:43
     install: sudo dnf install
   fedora-44:
+    name: fedora
+    version: '44'
     title: Fedora 44
     type: rpm
     image: registry.fedoraproject.org/fedora:44
     install: sudo dnf install
   opensuse-tumbleweed:
+    name: opensuse
+    version: 'tumbleweed'
     title: openSUSE Tumbleweed
     type: rpm
     image: registry.opensuse.org/opensuse/tumbleweed:latest
     install: sudo zypper install
   opensuse-leap:
+    name: opensuse
+    version: 'leap-16.0'
     title: openSUSE Leap 16.0
     type: rpm
     image: registry.opensuse.org/opensuse/leap:16.0
     install: sudo zypper install
   debian-12:
+    name: debian
+    version: '12'
     title: Debian 12
     type: deb
     image: docker.io/library/debian:12
     install: sudo apt install
   debian-13:
+    name: debian
+    version: '13'
     title: Debian 13
     type: deb
     image: docker.io/library/debian:13
     install: sudo apt install
   ubuntu-22.04:
+    name: ubuntu
+    version: '22.04'
     title: Ubuntu 22.04
     type: deb
     image: docker.io/library/ubuntu:22.04
     install: sudo apt install
   ubuntu-24.04:
+    name: ubuntu
+    version: '24.04'
     title: Ubuntu 24.04
     type: deb
     image: docker.io/library/ubuntu:24.04
     install: sudo apt install
   ubuntu-26.04:
+    name: ubuntu
+    version: '26.04'
     title: Ubuntu 26.04
     type: deb
     image: docker.io/library/ubuntu:26.04
     install: sudo apt install
   arch:
+    name: arch
+    version: 'rolling'
     title: Arch Linux
     type: arch
     image:

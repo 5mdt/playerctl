@@ -10,4 +10,5 @@ IMAGE_{{ d.id }}_{{ cpu }} = {{ image }}
 IMAGE_{{ d.id }} = $(IMAGE_{{ d.id }}_$(PKG_ARCH))
 {% endif %}
 TYPE_{{ d.id }} = {{ d.type }}
+SLUG_{{ d.id }} = {{ d.slug }}
 {% endfor %}

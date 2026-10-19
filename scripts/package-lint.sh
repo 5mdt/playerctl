@@ -25,7 +25,8 @@ case " ${ID} ${ID_LIKE:-} " in
         lintian --fail-on error "${pkgdir}"/*.deb
         ;;
     *" arch "*)
-        pacman -Syu --noconfirm namcap || exit 1
+        # Landlock is not allowed in containers on CI runners
+        pacman -Syu --disable-sandbox --noconfirm namcap || exit 1
         out=$(namcap "${pkgdir}"/*.pkg.tar.*)
         echo "${out}"
         ! grep -q ' E: ' <<< "${out}"
