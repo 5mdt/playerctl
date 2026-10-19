@@ -27,7 +27,7 @@
 
 #include "playerctl/playerctl-common.h"
 
-#define LENGTH(array) (sizeof array / sizeof array[0])
+#define LENGTH(array) (sizeof (array) / sizeof ((array)[0]))
 
 #define MAX_ARGS 32
 
@@ -366,18 +366,16 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
                       *end += 1;
                       break;
                     }
-                  else if (format[*end] == ',')
+                  if (format[*end] == ',')
                     {
                       i = *end + 1;
                       continue;
                     }
-                  else
-                    {
-                      g_set_error (error, playerctl_formatter_error_quark (),
-                                   1, "expecting \")\" (position %d)", *end);
-                      token_destroy (tok);
-                      return NULL;
-                    }
+
+                  g_set_error (error, playerctl_formatter_error_quark (), 1,
+                               "expecting \")\" (position %d)", *end);
+                  token_destroy (tok);
+                  return NULL;
                 }
               goto loop_out;
             }
@@ -721,17 +719,15 @@ helperfn_default (struct token *token, GVariant **args, int nargs,
       g_variant_ref (args[1]);
       return args[1];
     }
-  else
+
+  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_STRING)
+      && strlen (g_variant_get_string (args[0], NULL)) == 0)
     {
-      if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_STRING)
-          && strlen (g_variant_get_string (args[0], NULL)) == 0)
-        {
-          g_variant_ref (args[1]);
-          return args[1];
-        }
-      g_variant_ref (args[0]);
-      return args[0];
+      g_variant_ref (args[1]);
+      return args[1];
     }
+  g_variant_ref (args[0]);
+  return args[0];
 }
 
 static GVariant *
@@ -789,14 +785,11 @@ helperfn_emoji (struct token *token, GVariant **args, int nargs,
         {
           return g_variant_new ("s", "🔈");
         }
-      else if (volume < 0.6666)
+      if (volume < 0.6666)
         {
           return g_variant_new ("s", "🔉");
         }
-      else
-        {
-          return g_variant_new ("s", "🔊");
-        }
+      return g_variant_new ("s", "🔊");
     }
 
   g_variant_ref (value);
@@ -860,20 +853,9 @@ is_valid_numeric_type (GVariant *value)
       return FALSE;
     }
 
-  if (g_variant_is_of_type (value, G_VARIANT_TYPE_INT64))
-    {
-      return TRUE;
-    }
-  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64))
-    {
-      return TRUE;
-    }
-  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
-    {
-      return TRUE;
-    }
-
-  return FALSE;
+  return g_variant_is_of_type (value, G_VARIANT_TYPE_INT64)
+         || g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64)
+         || g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE);
 }
 
 static gdouble
@@ -885,18 +867,16 @@ get_double_value (GVariant *value)
     {
       return (gdouble)g_variant_get_int64 (value);
     }
-  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64))
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64))
     {
       return (gdouble)g_variant_get_uint64 (value);
     }
-  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
     {
       return g_variant_get_double (value);
     }
-  else
-    {
-      assert (FALSE && "not reached");
-    }
+
+  assert (FALSE && "not reached");
   return 0.0;
 }
 
@@ -978,18 +958,16 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
           gint64 value = g_variant_get_int64 (args[0]);
           return g_variant_new ("x", value * -1);
         }
-      else if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_DOUBLE))
+      if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_DOUBLE))
         {
           gdouble value = g_variant_get_double (args[0]);
           return g_variant_new ("d", value * -1);
         }
-      else
-        {
-          g_set_error (error, playerctl_formatter_error_quark (), 1,
-                       "Got unsupported operand type for unary -: '%s'",
-                       g_variant_get_type_string (args[0]));
-          return NULL;
-        }
+
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "Got unsupported operand type for unary -: '%s'",
+                   g_variant_get_type_string (args[0]));
+      return NULL;
     }
 
   if (nargs != 2)

@@ -4,3 +4,6 @@ Language: Cpp
 BasedOnStyle: GNU
 DerivePointerAlignment: false
 PointerAlignment: Right
+# gtk-doc annotations such as (type GList(Foo)) must stay on one line for
+# g-ir-scanner, so comments are never rewrapped
+ReflowComments: Never

@@ -30,7 +30,7 @@
 #include "playerctl-common.h"
 #include "playerctl-generated.h"
 
-#define LENGTH(array) (sizeof array / sizeof array[0])
+#define LENGTH(array) (sizeof (array) / sizeof ((array)[0]))
 
 #define MPRIS_PATH "/org/mpris/MediaPlayer2"
 #define PROPERTIES_IFACE "org.freedesktop.DBus.Properties"
@@ -102,7 +102,7 @@ struct _PlayerctlPlayerPrivate
 static inline int64_t
 timespec_to_usec (const struct timespec *a)
 {
-  return (int64_t)a->tv_sec * 1e+6 + a->tv_nsec / 1000;
+  return (int64_t)a->tv_sec * 1000000 + a->tv_nsec / 1000;
 }
 
 static gint64
@@ -1330,8 +1330,6 @@ playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
   g_closure_sink (callback);
 
   g_signal_connect_closure (self, event, callback, TRUE);
-
-  return;
 }
 
 #define PLAYER_COMMAND_FUNC(COMMAND)                                          \
@@ -1396,8 +1394,6 @@ playerctl_player_open (PlayerctlPlayer *self, gchar *uri, GError **err)
       g_propagate_error (err, tmp_error);
       return;
     }
-
-  return;
 }
 
 /**
@@ -1469,8 +1465,6 @@ playerctl_player_seek (PlayerctlPlayer *self, gint64 offset, GError **err)
       g_propagate_error (err, tmp_error);
       return;
     }
-
-  return;
 }
 
 /**

@@ -40,12 +40,12 @@ pctl_parse_playback_status (const gchar *status_str,
       *status = PLAYERCTL_PLAYBACK_STATUS_PLAYING;
       return TRUE;
     }
-  else if (strcasecmp (status_str, "Paused") == 0)
+  if (strcasecmp (status_str, "Paused") == 0)
     {
       *status = PLAYERCTL_PLAYBACK_STATUS_PAUSED;
       return TRUE;
     }
-  else if (strcasecmp (status_str, "Stopped") == 0)
+  if (strcasecmp (status_str, "Stopped") == 0)
     {
       *status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
       return TRUE;
@@ -97,12 +97,12 @@ pctl_parse_loop_status (const gchar *status_str, PlayerctlLoopStatus *status)
       *status = PLAYERCTL_LOOP_STATUS_NONE;
       return TRUE;
     }
-  else if (strcasecmp (status_str, "Track") == 0)
+  if (strcasecmp (status_str, "Track") == 0)
     {
       *status = PLAYERCTL_LOOP_STATUS_TRACK;
       return TRUE;
     }
-  else if (strcasecmp (status_str, "Playlist") == 0)
+  if (strcasecmp (status_str, "Playlist") == 0)
     {
       *status = PLAYERCTL_LOOP_STATUS_PLAYLIST;
       return TRUE;
@@ -176,6 +176,7 @@ pctl_bus_type_to_source (GBusType bus_type)
 PlayerctlPlayerName *
 pctl_player_name_new (const gchar *instance, PlayerctlSource source)
 {
+  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new macro expansion
   PlayerctlPlayerName *player_name = g_slice_new (PlayerctlPlayerName);
   gchar **split = g_strsplit (instance, ".", 2);
   player_name->name = g_strdup (split[0]);
@@ -228,10 +229,8 @@ pctl_player_name_string_instance_compare (const gchar *name,
     {
       return 0;
     }
-  else
-    {
-      return 1;
-    }
+
+  return 1;
 }
 
 GList *
@@ -375,6 +374,7 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
   size_t offset = strlen (MPRIS_PREFIX);
   for (gsize i = 0; i < reply_count; i += 1)
     {
+      // NOLINTNEXTLINE(bugprone-assignment-in-if-condition): glib macro
       if (g_str_has_prefix (names[i], MPRIS_PREFIX))
         {
           PlayerctlPlayerName *player_name = pctl_player_name_new (

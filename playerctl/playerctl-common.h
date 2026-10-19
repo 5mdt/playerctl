@@ -32,12 +32,12 @@
  * in the next major version. */
 #define PLAYERCTLD_INTERFACE_LEGACY "com.github.altdesktop.playerctld"
 
-gboolean pctl_parse_playback_status (const gchar *playback_status,
+gboolean pctl_parse_playback_status (const gchar *status_str,
                                      PlayerctlPlaybackStatus *status);
 
 const gchar *pctl_playback_status_to_string (PlayerctlPlaybackStatus status);
 
-gboolean pctl_parse_loop_status (const gchar *loop_status,
+gboolean pctl_parse_loop_status (const gchar *status_str,
                                  PlayerctlLoopStatus *status);
 
 const gchar *pctl_loop_status_to_string (PlayerctlLoopStatus status);
@@ -48,7 +48,7 @@ GBusType pctl_source_to_bus_type (PlayerctlSource source);
 
 PlayerctlSource pctl_bus_type_to_source (GBusType bus_type);
 
-PlayerctlPlayerName *pctl_player_name_new (const gchar *name,
+PlayerctlPlayerName *pctl_player_name_new (const gchar *instance,
                                            PlayerctlSource source);
 
 gint pctl_player_name_compare (PlayerctlPlayerName *name_a,

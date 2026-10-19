@@ -150,8 +150,7 @@ playerctl_player_manager_class_init (PlayerctlPlayerManagerClass *klass)
   gobject_class->finalize = playerctl_player_manager_finalize;
 
   /**
-   * PlayerctlPlayerManager:players: (transfer none) (type
-   * GList(PlayerctlPlayer))
+   * PlayerctlPlayerManager:players: (transfer none) (type GList(PlayerctlPlayer))
    *
    * A list of players that are currently connected and managed by this class.
    */
@@ -160,8 +159,7 @@ playerctl_player_manager_class_init (PlayerctlPlayerManagerClass *klass)
       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
   /**
-   * PlayerctlPlayerManager:player-names: (transfer none) (type
-   * GList(PlayerctlPlayerName))
+   * PlayerctlPlayerManager:player-names: (transfer none) (type GList(PlayerctlPlayerName))
    *
    * A list of fully qualified player names that are currently available to
    * control.
@@ -247,11 +245,13 @@ player_id_from_bus_name (const gchar *bus_name)
 {
   const size_t prefix_len = strlen (MPRIS_PREFIX);
 
+  // NOLINTBEGIN(bugprone-assignment-in-if-condition): glib macro
   if (bus_name == NULL || !g_str_has_prefix (bus_name, MPRIS_PREFIX)
       || strlen (bus_name) <= prefix_len)
     {
       return NULL;
     }
+  // NOLINTEND(bugprone-assignment-in-if-condition)
 
   return g_strdup (bus_name + prefix_len);
 }

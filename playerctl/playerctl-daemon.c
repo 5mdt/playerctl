@@ -666,21 +666,10 @@ context_remove_player (struct PlayerctldContext *ctx, struct Player *player)
 }
 
 static void
-context_rotate_queue (struct PlayerctldContext *ctx)
-{
-  struct Player *player;
-  if ((player = g_queue_peek_head (ctx->players)))
-    {
-      context_remove_player (ctx, player);
-      g_queue_push_tail (ctx->players, player);
-    }
-}
-
-static void
 context_unrotate_queue (struct PlayerctldContext *ctx)
 {
-  struct Player *player;
-  if ((player = g_queue_peek_tail (ctx->players)))
+  struct Player *player = g_queue_peek_tail (ctx->players);
+  if (player != NULL)
     {
       context_remove_player (ctx, player);
       g_queue_push_head (ctx->players, player);
@@ -694,15 +683,16 @@ static struct Player *
 context_shift_active_player (struct PlayerctldContext *ctx)
 {
   GError *error = NULL;
-  struct Player *previous, *current;
+  struct Player *previous = context_get_active_player (ctx);
 
-  if (!(previous = current = context_get_active_player (ctx)))
+  if (previous == NULL)
     {
       return NULL;
     }
   context_remove_player (ctx, previous);
   context_add_player (ctx, previous);
-  if ((current = context_get_active_player (ctx)) != previous)
+  struct Player *current = context_get_active_player (ctx);
+  if (current != previous)
     {
       player_update_position_sync (current, ctx, &error);
       if (error != NULL)
@@ -725,16 +715,17 @@ static struct Player *
 context_unshift_active_player (struct PlayerctldContext *ctx)
 {
   GError *error = NULL;
-  struct Player *previous, *current;
+  struct Player *previous = context_get_active_player (ctx);
 
-  if (!(previous = current = context_get_active_player (ctx)))
+  if (previous == NULL)
     {
       return NULL;
     }
 
   context_unrotate_queue (ctx);
 
-  if ((current = context_get_active_player (ctx)) != previous)
+  struct Player *current = context_get_active_player (ctx);
+  if (current != previous)
     {
       player_update_position_sync (current, ctx, &error);
       if (error != NULL)
@@ -1088,7 +1079,8 @@ playerctld_method_call_func (GDBusConnection *connection, const char *sender,
        * Move the active player to the back of the queue,
        * return the new active player
        */
-      if ((active_player = context_shift_active_player (ctx)))
+      active_player = context_shift_active_player (ctx);
+      if (active_player != NULL)
         {
           g_dbus_method_invocation_return_value (
               invocation, g_variant_new ("(s)", active_player->well_known));
@@ -1108,7 +1100,8 @@ playerctld_method_call_func (GDBusConnection *connection, const char *sender,
        * Set the least recently active player to active,
        * return that player. Inverse of Shift.
        */
-      if ((active_player = context_unshift_active_player (ctx)))
+      active_player = context_unshift_active_player (ctx);
+      if (active_player != NULL)
         {
           g_dbus_method_invocation_return_value (
               invocation, g_variant_new ("(s)", active_player->well_known));
@@ -1458,7 +1451,7 @@ name_owner_changed_signal_callback (GDBusConnection *connection,
           player_update_position_sync (active_player, ctx, &error);
           if (error != NULL)
             {
-              active_player->position = 0l;
+              active_player->position = 0L;
               g_warning (
                   "could not update player position for player '%s': %s",
                   active_player->well_known, error->message);
@@ -1536,7 +1529,7 @@ player_signal_proxy_callback (GDBusConnection *connection,
       player_update_position_sync (player, ctx, &error);
       if (error != NULL)
         {
-          player->position = 0l;
+          player->position = 0L;
           g_warning ("could not update player position: %s", error->message);
           g_clear_error (&error);
         }
@@ -1665,6 +1658,7 @@ start_playerctld_dbus_activation (GDBusConnection *connection, GError **error)
       G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &tmp_error);
   if (tmp_error != NULL)
     {
+      // NOLINTBEGIN(bugprone-assignment-in-if-condition): glib macro
       if (g_str_has_prefix (
               tmp_error->message,
               "GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown"))
@@ -1672,6 +1666,7 @@ start_playerctld_dbus_activation (GDBusConnection *connection, GError **error)
           g_clear_error (&tmp_error);
           return ACTIVATION_NOT_SUPPORTED;
         }
+      // NOLINTEND(bugprone-assignment-in-if-condition)
 
       g_propagate_error (error, tmp_error);
       return ACTIVATION_FAIL;
@@ -1686,16 +1681,13 @@ start_playerctld_dbus_activation (GDBusConnection *connection, GError **error)
     {
       return ACTIVATION_SUCCESS;
     }
-  else if (result_code == 2)
+  if (result_code == 2)
     {
       return ACTIVATION_ALREADY_RUNNING;
     }
-  else
-    {
-      g_warning ("Got unknown result from StartServiceByName: %d\n",
-                 result_code);
-      return ACTIVATION_SUCCESS;
-    }
+
+  g_warning ("Got unknown result from StartServiceByName: %d\n", result_code);
+  return ACTIVATION_SUCCESS;
 }
 
 int

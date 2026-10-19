@@ -31,7 +31,7 @@
 #include "playerctl-formatter.h"
 #include "playerctl-player-private.h"
 
-#define LENGTH(array) (sizeof array / sizeof array[0])
+#define LENGTH(array) (sizeof (array) / sizeof ((array)[0]))
 
 // clang-format off
 G_DEFINE_QUARK(playerctl-cli-error-quark, playerctl_cli_error);
@@ -102,7 +102,7 @@ cli_print_output (gchar *output)
     }
 
   printf ("%s", output);
-  fflush (stdout);
+  (void)fflush (stdout);
   g_free (last_output);
   last_output = output;
 }
@@ -136,8 +136,6 @@ playercmd_args_destroy (struct playercmd_args *data)
 
   g_strfreev (data->argv);
   free (data);
-
-  return;
 }
 
 static gchar *
@@ -951,6 +949,12 @@ struct player_command
 static const struct player_command *
 get_player_command (gchar **argv, gint argc, GError **error)
 {
+  if (argv == NULL || argc < 1)
+    {
+      g_set_error (error, playerctl_cli_error_quark (), 1, "No command given");
+      return NULL;
+    }
+
   for (gsize i = 0; i < LENGTH (player_commands); ++i)
     {
       const struct player_command command = player_commands[i];
@@ -1401,25 +1405,26 @@ player_name_string_compare_func (gconstpointer a, gconstpointer b,
       // neither are in the list
       return 0;
     }
-  else if (a_match_index == -1)
+
+  if (a_match_index == -1)
     {
       // b is in the list
       return (b_match_index < any_index ? 1 : -1);
     }
-  else if (b_match_index == -1)
+
+  if (b_match_index == -1)
     {
       // a is in the list
       return (a_match_index < any_index ? -1 : 1);
     }
-  else if (a_match_index == b_match_index)
+
+  if (a_match_index == b_match_index)
     {
       // preserve order
       return 0;
     }
-  else
-    {
-      return (a_match_index < b_match_index ? -1 : 1);
-    }
+
+  return (a_match_index < b_match_index ? -1 : 1);
 }
 
 gint
@@ -1455,7 +1460,7 @@ main (int argc, char *argv[])
   GList *available_players = NULL;
 
   // seems to be required to print unicode (see #8)
-  setlocale (LC_CTYPE, "");
+  (void)setlocale (LC_CTYPE, "");
 
   if (!parse_setup_options (argc, argv, &error))
     {
@@ -1590,7 +1595,7 @@ main (int argc, char *argv[])
               if (output != NULL)
                 {
                   printf ("%s", output);
-                  fflush (stdout);
+                  (void)fflush (stdout);
                   g_free (output);
                 }
 

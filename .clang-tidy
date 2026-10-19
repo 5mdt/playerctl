@@ -8,6 +8,8 @@
 #     cannot change without breaking the ABI
 #   bugprone-casting-through-void: fires inside the glib G_* cast macros
 #   bugprone-multi-level-implicit-pointer-conversion: GObject out-parameter APIs
+#   bugprone-narrowing-conversions: glib mixes guint/gsize/gint64 with the
+#     signed int and double types of its public API throughout
 #
 # Probed but not enabled (too noisy for GObject code, or an ABI-affecting
 # change): misc-include-cleaner, misc-unused-parameters, misc-no-recursion,
@@ -20,6 +22,7 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -bugprone-casting-through-void,
   -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-narrowing-conversions,
   cert-err33-c,
   cert-err34-c,
   cert-flp30-c,
@@ -46,5 +49,6 @@ Checks: >
 # cannot be edited
 HeaderFilterRegex: 'playerctl/playerctl(-common|-formatter|-player|-player-manager|-player-name|-player-private|-version|-enum-types)?\.h$'
 CheckOptions:
-  # GObject struct tags (struct _PlayerctlPlayer) are a glib convention
-  bugprone-reserved-identifier.AllowedIdentifiers: '_Playerctl[A-Za-z]*'
+  # GObject struct tags (struct _PlayerctlPlayer) and __PLAYERCTL_*__ header
+  # guards are glib conventions
+  bugprone-reserved-identifier.AllowedIdentifiers: '_Playerctl[A-Za-z]*;__PLAYERCTL_[A-Z_]*__'
