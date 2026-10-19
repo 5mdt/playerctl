@@ -127,6 +127,25 @@ calculate_cached_position (PlayerctlPlaybackStatus status,
     }
 }
 
+// Unwraps the "(v)" reply of org.freedesktop.DBus.Properties.Get. Some players
+// reply with a different type, which must not abort the client. Returns a new
+// reference to the property value or NULL.
+static GVariant *
+properties_get_reply_value (GVariant *reply)
+{
+  if (!g_variant_is_of_type (reply, G_VARIANT_TYPE ("(v)")))
+    {
+      g_debug ("unexpected reply to Properties.Get: %s",
+               g_variant_get_type_string (reply));
+      return NULL;
+    }
+
+  GVariant *box = g_variant_get_child_value (reply, 0);
+  GVariant *value = g_variant_get_variant (box);
+  g_variant_unref (box);
+  return value;
+}
+
 static gchar *
 metadata_get_track_id (GVariant *metadata)
 {
@@ -145,8 +164,19 @@ metadata_get_track_id (GVariant *metadata)
   if (track_id_variant != NULL)
     {
       const gchar *track_id = g_variant_get_string (track_id_variant, NULL);
+      gchar *result = NULL;
+      // players like Totem send ids that are not valid object paths, which
+      // would abort when building the SetPosition call
+      if (g_variant_is_object_path (track_id))
+        {
+          result = g_strdup (track_id);
+        }
+      else
+        {
+          g_debug ("mpris:trackid is not a valid object path: %s", track_id);
+        }
       g_variant_unref (track_id_variant);
-      return g_strdup (track_id);
+      return result;
     }
 
   return NULL;
@@ -238,10 +268,15 @@ playerctl_player_properties_changed_callback (
 
       if (call_reply != NULL)
         {
-          GVariant *call_reply_box = g_variant_get_child_value (call_reply, 0);
-          playback_status = g_variant_get_child_value (call_reply_box, 0);
+          playback_status = properties_get_reply_value (call_reply);
           g_variant_unref (call_reply);
-          g_variant_unref (call_reply_box);
+          if (playback_status != NULL
+              && !g_variant_is_of_type (playback_status,
+                                        G_VARIANT_TYPE_STRING))
+            {
+              g_variant_unref (playback_status);
+              playback_status = NULL;
+            }
         }
     }
 
@@ -375,13 +410,16 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
           return NULL;
         }
 
-      GVariant *call_reply_properties
-          = g_variant_get_child_value (call_reply, 0);
-
-      metadata = g_variant_get_child_value (call_reply_properties, 0);
-
+      metadata = properties_get_reply_value (call_reply);
       g_variant_unref (call_reply);
-      g_variant_unref (call_reply_properties);
+
+      if (metadata == NULL)
+        {
+          g_set_error (err, playerctl_player_error_quark (), 3,
+                       "Player sent an invalid reply for the Metadata "
+                       "property");
+          return NULL;
+        }
     }
 
   return metadata;
@@ -1768,13 +1806,22 @@ playerctl_player_get_position (PlayerctlPlayer *self, GError **err)
       return 0;
     }
 
-  GVariant *call_reply_properties = g_variant_get_child_value (call_reply, 0);
-  GVariant *call_reply_unboxed = g_variant_get_variant (call_reply_properties);
+  GVariant *call_reply_unboxed = properties_get_reply_value (call_reply);
+  g_variant_unref (call_reply);
+
+  if (call_reply_unboxed == NULL
+      || !g_variant_is_of_type (call_reply_unboxed, G_VARIANT_TYPE_INT64))
+    {
+      if (call_reply_unboxed != NULL)
+        {
+          g_variant_unref (call_reply_unboxed);
+        }
+      g_set_error (err, playerctl_player_error_quark (), 3,
+                   "Player sent an invalid reply for the Position property");
+      return 0;
+    }
 
   gint64 position = g_variant_get_int64 (call_reply_unboxed);
-
-  g_variant_unref (call_reply);
-  g_variant_unref (call_reply_properties);
   g_variant_unref (call_reply_unboxed);
 
   return position;

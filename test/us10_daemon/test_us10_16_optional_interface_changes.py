@@ -14,6 +14,7 @@ from ..helpers.daemon import (
     start_playerctld,
 )
 from ..helpers.mpris import (
+    PLAYER_INTERFACE,
     PLAYLISTS_INTERFACE,
     TRACKLIST_INTERFACE,
     MprisTrackList,
@@ -185,3 +186,55 @@ async def test_player_gaining_tracklist_is_announced_with_it(
     ]
     assert TRACKLIST_INTERFACE in announced
     await listener.close()
+
+
+async def test_change_of_an_unknown_interface_does_not_crash_the_daemon(
+    bus_address, daemon_bus, mpris_factory
+):
+    # altdesktop/playerctl#268: playerctld aborted on PropertiesChanged for
+    # interfaces
+    # that are not part of MPRIS
+    [mpris1, mpris2] = await mpris_factory('player1', 'player2')
+    await mpris1.set_artist_title('artist1', 'title1')
+    await mpris2.set_artist_title('artist2', 'title2')
+    playerctld = await start_playerctld(bus_address)
+
+    mpris1.bus.send(
+        Message.new_signal(
+            MPRIS_PATH,
+            PROPERTIES,
+            'PropertiesChanged',
+            'sa{sv}as',
+            ['org.example.Custom', {'Foo': Variant('u', 1)}, []],
+        )
+    )
+    await mpris1.ping()
+    await settle()
+
+    assert playerctld.returncode is None, playerctld.log
+    assert any('unknown interface' in line for line in playerctld.log)
+    # the unknown change does not make the player active
+    assert (await player_names(daemon_bus))[0] == PREFIX + 'player2'
+
+
+async def test_wrongly_typed_properties_do_not_crash_the_daemon(
+    bus_address, mpris_factory
+):
+    [mpris] = await mpris_factory('player1')
+    await mpris.set_artist_title('artist1', 'title1')
+    playerctld = await start_playerctld(bus_address)
+
+    mpris.bus.send(
+        Message.new_signal(
+            MPRIS_PATH,
+            PROPERTIES,
+            'PropertiesChanged',
+            'sa{su}as',
+            [PLAYER_INTERFACE, {'Volume': 1}, []],
+        )
+    )
+    await mpris.ping()
+    await settle()
+
+    assert playerctld.returncode is None, playerctld.log
+    assert any('unknown type' in line for line in playerctld.log)
