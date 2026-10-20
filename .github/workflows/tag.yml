@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # GITHUB_TOKEN cannot push workflow files to main; RELEASE_TOKEN needs Contents and Workflows write
+          token: ${{ secrets.RELEASE_TOKEN }}
       - name: Check that the packages of the release candidate were built
         env:
           GH_TOKEN: ${{ github.token }}
