@@ -928,22 +928,26 @@ struct player_command
   const gchar *name;
   gboolean (*func) (PlayerctlPlayer *player, gchar **argv, gint argc,
                     gchar **output, GError **error);
-  gboolean supports_format;
   const gchar *follow_signal;
+  gboolean supports_format;
+  // the command only reads a Can* property and calls a method, so the player
+  // does not need to load all of its properties first (a slow player would
+  // delay the command)
+  gboolean lazy;
 } player_commands[] = {
-  { "open", &playercmd_open, FALSE, NULL },
-  { "play", &playercmd_play, FALSE, NULL },
-  { "pause", &playercmd_pause, FALSE, NULL },
-  { "play-pause", &playercmd_play_pause, FALSE, NULL },
-  { "stop", &playercmd_stop, FALSE, NULL },
-  { "next", &playercmd_next, FALSE, NULL },
-  { "previous", &playercmd_previous, FALSE, NULL },
-  { "position", &playercmd_position, TRUE, "seeked" },
-  { "volume", &playercmd_volume, TRUE, "volume" },
-  { "status", &playercmd_status, TRUE, "playback-status" },
-  { "loop", &playercmd_loop, TRUE, "loop-status" },
-  { "shuffle", &playercmd_shuffle, TRUE, "shuffle" },
-  { "metadata", &playercmd_metadata, TRUE, "metadata" },
+  { "open", &playercmd_open, NULL, FALSE, TRUE },
+  { "play", &playercmd_play, NULL, FALSE, TRUE },
+  { "pause", &playercmd_pause, NULL, FALSE, TRUE },
+  { "play-pause", &playercmd_play_pause, NULL, FALSE, TRUE },
+  { "stop", &playercmd_stop, NULL, FALSE, TRUE },
+  { "next", &playercmd_next, NULL, FALSE, TRUE },
+  { "previous", &playercmd_previous, NULL, FALSE, TRUE },
+  { "position", &playercmd_position, "seeked", TRUE, FALSE },
+  { "volume", &playercmd_volume, "volume", TRUE, FALSE },
+  { "status", &playercmd_status, "playback-status", TRUE, FALSE },
+  { "loop", &playercmd_loop, "loop-status", TRUE, FALSE },
+  { "shuffle", &playercmd_shuffle, "shuffle", TRUE, FALSE },
+  { "metadata", &playercmd_metadata, "metadata", TRUE, FALSE },
 };
 
 static const struct player_command *
@@ -1563,7 +1567,18 @@ main (int argc, char *argv[])
         }
       has_selected = TRUE;
 
-      PlayerctlPlayer *player = playerctl_player_new_from_name (name, &error);
+      PlayerctlPlayer *player = NULL;
+      if (!follow && player_cmd->lazy)
+        {
+          player
+              = g_initable_new (PLAYERCTL_TYPE_PLAYER, NULL, &error,
+                                "player-instance", name->instance, "source",
+                                name->source, "load-properties", FALSE, NULL);
+        }
+      else
+        {
+          player = playerctl_player_new_from_name (name, &error);
+        }
       if (error != NULL)
         {
           g_printerr ("Could not connect to player: %s\n", error->message);
