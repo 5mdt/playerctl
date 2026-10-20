@@ -15,9 +15,14 @@ permissions:
   actions: write
 jobs:
   release:
-    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     steps:
+      - name: Check that the workflow runs on develop
+        run: |
+          if [ "${GITHUB_REF}" != refs/heads/develop ]; then
+            echo "::error::run Tag release on develop (this workflow does not exist on main), not on ${GITHUB_REF}"
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -53,8 +58,8 @@ jobs:
           tag=${{ steps.tag.outputs.tag }}
           version=${tag#v}
           gh release download "${RC}" --dir build/release
-          awk -v header="## Version ${version}" '$0 == header {found = 1; next} /^## / {found = 0} found' \
-            doc/CHANGELOG.md > build/notes.md
+          git show "${RC}:doc/CHANGELOG.md" \
+            | awk -v header="## Version ${version}" '$0 == header {found = 1; next} /^## / {found = 0} found' > build/notes.md
           gh release create "${tag}" build/release/* \
             --title "Playerctl ${version}" --notes-file build/notes.md --latest
           echo "Released \`${tag}\` from \`${RC}\`: $(gh release view "${tag}" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
