@@ -489,7 +489,7 @@ tokenize_format (const char *format, GError **error)
   if (len >= 1028)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "the maximum format string length is 1028");
+                   "the maximum format string length is 1027");
       return NULL;
     }
 
@@ -606,7 +606,8 @@ helperfn_duration (struct token *token, GVariant **args, int nargs,
   if (nargs != 1)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function uc takes exactly one argument (got %d)", nargs);
+                   "function duration takes exactly one argument (got %d)",
+                   nargs);
       return NULL;
     }
 
@@ -627,14 +628,30 @@ helperfn_duration (struct token *token, GVariant **args, int nargs,
                                  G_VARIANT_TYPE_UINT64))
     {
       // XXX: spotify may give uint64
-      duration = g_variant_get_uint64 (value);
+      guint64 unsigned_duration = g_variant_get_uint64 (value);
+      if (unsigned_duration > G_MAXINT64)
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "function duration got a value that is out of range");
+          return NULL;
+        }
+      duration = unsigned_duration;
     }
   else if (g_variant_type_equal (g_variant_get_type (value),
                                  G_VARIANT_TYPE_DOUBLE))
     {
       // only if supplied by a constant or position value type goes against
       // spec
-      duration = g_variant_get_double (value);
+      gdouble double_duration = g_variant_get_double (value);
+      // 2^63 is exactly representable; this also rejects NaN
+      if (!(double_duration >= -9223372036854775808.0
+            && double_duration < 9223372036854775808.0))
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "function duration got a value that is out of range");
+          return NULL;
+        }
+      duration = double_duration;
     }
   else
     {
@@ -823,11 +840,21 @@ helperfn_trunc (struct token *token, GVariant **args, int nargs,
       return NULL;
     }
 
+  gdouble limit = g_variant_get_double (len);
+  if (!(limit >= 0.0))
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function trunc's length parameter cannot be negative");
+      return NULL;
+    }
+
   gchar *orig = pctl_print_gvariant (value);
-  gchar *trunc = g_utf8_substring (orig, 0, g_variant_get_double (len));
+  glong total = g_utf8_strlen (orig, -1);
+  glong end = limit < (gdouble)total ? (glong)limit : total;
+  gchar *trunc = g_utf8_substring (orig, 0, end);
 
   GString *formatted = g_string_new (trunc);
-  if (g_utf8_strlen (trunc, 256) < g_utf8_strlen (orig, 256))
+  if (end < total)
     {
       g_string_append (formatted, "…");
     }
@@ -880,6 +907,14 @@ get_double_value (GVariant *value)
   return 0.0;
 }
 
+// Type name of an operand for error messages; operands of unset variables
+// are NULL.
+static const gchar *
+operand_type_name (GVariant *value)
+{
+  return value != NULL ? g_variant_get_type_string (value) : "NULL";
+}
+
 static GVariant *
 infixfn_add (struct token *token, GVariant **args, int nargs, GError **error)
 {
@@ -890,7 +925,7 @@ infixfn_add (struct token *token, GVariant **args, int nargs, GError **error)
         {
           g_set_error (error, playerctl_formatter_error_quark (), 1,
                        "Got unsupported operand type for unary +: '%s'",
-                       g_variant_get_type_string (args[0]));
+                       operand_type_name (args[0]));
           return NULL;
         }
       g_variant_ref (args[0]);
@@ -917,8 +952,7 @@ infixfn_add (struct token *token, GVariant **args, int nargs, GError **error)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
                    "Got unsupported operand types for +: '%s' and '%s'",
-                   g_variant_get_type_string (args[0]),
-                   g_variant_get_type_string (args[1]));
+                   operand_type_name (args[0]), operand_type_name (args[1]));
       return NULL;
     }
 
@@ -927,10 +961,9 @@ infixfn_add (struct token *token, GVariant **args, int nargs, GError **error)
     {
       gint64 val0 = g_variant_get_int64 (args[0]);
       gint64 val1 = g_variant_get_int64 (args[1]);
-      gint64 result = val0 + val1;
+      gint64 result;
 
-      if ((val0 > 0 && val1 > 0 && result < 0)
-          || (val0 < 0 && val1 < 0 && result > 0))
+      if (__builtin_add_overflow (val0, val1, &result))
         {
           g_set_error (error, playerctl_formatter_error_quark (), 1,
                        "Numeric overflow detected");
@@ -952,11 +985,33 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
 {
   if (nargs == 1)
     {
-      // unary addition
+      // unary negation
+      if (args[0] == NULL)
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "Got unsupported operand type for unary -: NULL");
+          return NULL;
+        }
       if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64))
         {
-          gint64 value = g_variant_get_int64 (args[0]);
-          return g_variant_new ("x", value * -1);
+          gint64 result;
+          if (__builtin_sub_overflow ((gint64)0, g_variant_get_int64 (args[0]),
+                                      &result))
+            {
+              g_set_error (error, playerctl_formatter_error_quark (), 1,
+                           "Numeric overflow detected");
+              return NULL;
+            }
+          return g_variant_new ("x", result);
+        }
+      if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_UINT64))
+        {
+          guint64 value = g_variant_get_uint64 (args[0]);
+          if (value <= G_MAXINT64)
+            {
+              return g_variant_new ("x", -(gint64)value);
+            }
+          return g_variant_new ("d", -(gdouble)value);
         }
       if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_DOUBLE))
         {
@@ -966,7 +1021,7 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
 
       g_set_error (error, playerctl_formatter_error_quark (), 1,
                    "Got unsupported operand type for unary -: '%s'",
-                   g_variant_get_type_string (args[0]));
+                   operand_type_name (args[0]));
       return NULL;
     }
 
@@ -990,8 +1045,7 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
                    "Got unsupported operand types for -: '%s' and '%s'",
-                   g_variant_get_type_string (args[0]),
-                   g_variant_get_type_string (args[1]));
+                   operand_type_name (args[0]), operand_type_name (args[1]));
       return NULL;
     }
 
@@ -1000,10 +1054,9 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
     {
       gint64 val0 = g_variant_get_int64 (args[0]);
       gint64 val1 = g_variant_get_int64 (args[1]);
-      gint64 result = val0 - val1;
+      gint64 result;
 
-      if ((val0 > 0 && val1 < 0 && result < 0)
-          || (val0 < 0 && val1 > 0 && result > 0))
+      if (__builtin_sub_overflow (val0, val1, &result))
         {
           g_set_error (error, playerctl_formatter_error_quark (), 1,
                        "Numeric overflow detected");
@@ -1035,8 +1088,7 @@ infixfn_mul (struct token *token, GVariant **args, int nargs, GError **error)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
                    "Got unsupported operand types for *: '%s' and '%s'",
-                   g_variant_get_type_string (args[0]),
-                   g_variant_get_type_string (args[1]));
+                   operand_type_name (args[0]), operand_type_name (args[1]));
       return NULL;
     }
   if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64)
@@ -1044,9 +1096,9 @@ infixfn_mul (struct token *token, GVariant **args, int nargs, GError **error)
     {
       gint64 val0 = g_variant_get_int64 (args[0]);
       gint64 val1 = g_variant_get_int64 (args[1]);
-      gint64 result = val0 * val1;
+      gint64 result;
 
-      if (val0 != 0 && val1 / val0 != val1)
+      if (__builtin_mul_overflow (val0, val1, &result))
         {
           g_set_error (error, playerctl_formatter_error_quark (), 1,
                        "Numeric overflow detected");
@@ -1078,8 +1130,7 @@ infixfn_div (struct token *token, GVariant **args, int nargs, GError **error)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
                    "Got unsupported operand types for /: '%s' and '%s'",
-                   g_variant_get_type_string (args[0]),
-                   g_variant_get_type_string (args[1]));
+                   operand_type_name (args[0]), operand_type_name (args[1]));
       return NULL;
     }
 
@@ -1093,6 +1144,13 @@ infixfn_div (struct token *token, GVariant **args, int nargs, GError **error)
         {
           g_set_error (error, playerctl_formatter_error_quark (), 1,
                        "Divide by zero error");
+          return NULL;
+        }
+
+      if (val0 == G_MININT64 && val1 == -1)
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "Numeric overflow detected");
           return NULL;
         }
 
@@ -1226,6 +1284,7 @@ expand_format (GList *tokens, GVariantDict *context, GError **error)
       GVariant *value = expand_token (t->data, context, &tmp_error);
       if (tmp_error != NULL)
         {
+          g_string_free (expanded, TRUE);
           g_propagate_error (error, tmp_error);
           return NULL;
         }

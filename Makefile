@@ -1,8 +1,8 @@
-.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan docker-test coverage all precommit \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
-	lint lint-py lint-c lint-sh
+	lint lint-py lint-c lint-sh lint-complexity complexity
 .DEFAULT_GOAL := help
 
 FORMAT_C_SOURCE = $(shell find playerctl | grep \.[ch]$)
@@ -240,6 +240,12 @@ test-c: ## build and run the C unit tests (test/c) with meson test in the test i
 	$(CONTAINER_ENGINE) build -t playerctl-test .
 	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/src:Z" -w /src playerctl-test bash -c "meson setup /tmp/build-c -Dtests=true >/dev/null && ninja -C /tmp/build-c >/dev/null && meson test -C /tmp/build-c --print-errorlogs"
 
+test-asan: ## run the C unit tests and the CLI/daemon pytest suites against an AddressSanitizer + UBSan build in the test image; reports in build/asan
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) build -t playerctl-test .
+	rm -rf build/asan && mkdir -p build/asan
+	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/build/asan:/out:Z" playerctl-test bash scripts/test-asan.sh
+
 test: test-container ## run the tests in a container (alias for test-container)
 
 coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage
@@ -291,7 +297,7 @@ format-check-md: $(DEV_DEPS) ## check Markdown formatting (markdownfmt)
 	test -z "$$out" || { echo "Not formatted:"; echo "$$out"; exit 1; }
 
 # Linting
-lint: lint-py lint-c lint-sh ## lint Python, C and shell sources
+lint: lint-py lint-c lint-complexity lint-sh ## lint Python, C and shell sources
 
 lint-py: $(DEV_DEPS) ## lint Python sources (ruff)
 	$(call require,$(call need,uv))
@@ -312,6 +318,28 @@ lint-c: $(BUILD_DIR)/compile_commands.json ## lint C sources (clang-tidy, needs 
 	$(call require,$(call need,uv))
 	$(RUN) uv run --group lint clang-tidy -p $(BUILD_DIR) --quiet $(CLANG_TIDY_FLAGS) $(filter %.c,${FORMAT_C_SOURCE})
 
+# Function complexity and length (lizard). Locally the findings are only
+# reported; CI passes LIZARD_FLAGS="--ignore_warnings N", where N is the number
+# of known offenders, so no new oversized function gets in. Lower N as they are
+# refactored. The parameter limit leaves room for the fixed GLib callback
+# signatures.
+LIZARD_CCN ?= 15
+LIZARD_LENGTH ?= 80
+LIZARD_ARGS ?= 8
+LIZARD_FLAGS ?= --ignore_warnings -1
+LIZARD = $(RUN) uv run --group lint lizard -l c -C $(LIZARD_CCN) -L $(LIZARD_LENGTH) -a $(LIZARD_ARGS)
+
+lint-complexity: $(DEV_DEPS) ## lint C function complexity and length (lizard)
+	$(call require,$(call need,uv))
+	$(LIZARD) -w $(LIZARD_FLAGS) playerctl
+
+complexity: $(DEV_DEPS) ## write the lizard report and the duplicate code scan to build/lizard
+	$(call require,$(call need,uv))
+	mkdir -p build/lizard
+	$(LIZARD) --ignore_warnings -1 --html playerctl > build/lizard/index.html
+	$(LIZARD) --ignore_warnings -1 -Eduplicate playerctl > build/lizard/duplicates.txt
+	@echo "Reports: build/lizard/index.html, build/lizard/duplicates.txt"
+
 lint-sh: $(DEV_DEPS) ## lint shell scripts (shellcheck)
 	$(call require,$(call need,shellcheck))
 	$(RUN) shellcheck $(SH_SOURCE)
@@ -325,5 +353,19 @@ contributors-check: ## fail if CONTRIBUTORS.md misses an author of C code
 
 contributors-duplicates: ## list contributor identities that look like the same person (fix with .mailmap)
 	python3 scripts/update-contributors.py --duplicates
+
+# Recipe steps, not prerequisites: they must run in this order (formatters and
+# generators change files before the checks look at them), also under make -j.
+precommit: ## run everything before a commit: formatters, generators, linters, manifest check, C and pytest tests (not test-asan, coverage or packaging)
+	$(MAKE) format
+	$(MAKE) manifests-sync
+	$(MAKE) manifests
+	$(MAKE) docs
+	$(MAKE) format-check
+	$(MAKE) lint
+	$(MAKE) manifests-check
+	$(MAKE) contributors-check
+	$(MAKE) test-c
+	$(MAKE) test
 
 all: format-check lint test ## check formatting, lint, then run the container tests

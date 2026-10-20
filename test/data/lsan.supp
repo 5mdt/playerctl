@@ -1,0 +1,13 @@
+# One-time GLib/GIO allocations that live until exit and are not leaks of
+# playerctl itself. Used by `make test-asan`.
+leak:g_type_register_static
+leak:g_type_register_fundamental
+leak:g_type_class_ref
+leak:g_type_add_interface_static
+leak:g_quark_from_string
+leak:g_intern_string
+leak:g_dbus_error_register_error
+leak:g_test_init
+# GDBus worker thread: a message still in flight when the process exits
+leak:g_dbus_message_new_from_blob
+leak:g_dbus_connection_send_message_with_reply
