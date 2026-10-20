@@ -34,6 +34,12 @@ playerctld daemon
 
 You can list the names of players that are available to control that are running on the system with `playerctl --list-all`.
 
+An empty list is a valid result, not an error, so `--list-all` exits with 0 even when no player is running (it only prints `No players found` to stderr). The other commands exit with 1 in that case because they could not act on a player. To run a command only when a player exists, test the output of `--list-all`: `-s` silences the message and `grep -q .` exits with 1 on empty input.
+
+```
+playerctl --list-all -s | grep -q . && playerctl metadata title
+```
+
 If you'd only like to control certain players, you can pass the names of those players separated by commas with the `--player` flag. Playerctl will select the first instance of a player in that list that supports the command. To control all players in the list, you can use the `--all-players` flag.
 
 Similarly, you can ignore players by passing their names with the `--ignore-player` flag.

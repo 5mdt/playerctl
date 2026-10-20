@@ -191,3 +191,21 @@ async def test_player_whose_name_owner_is_replaced_stays_managed(
     for bus in (old_bus, new_bus):
         bus.disconnect()
         await bus.wait_for_disconnect()
+
+
+async def test_playing_player_wins_over_a_paused_one(
+    playerctl, playerctld, mpris_factory
+):
+    # 5mdt/playerctl#31: a paused mpv kept priority over firefox starting
+    [mpv, firefox] = await mpris_factory('mpv', 'firefox.instance9')
+    mpv.playback_status = 'Paused'
+    await mpv.set_artist_title('artist', 'title')
+    firefox.playback_status = 'Paused'
+    await firefox.set_artist_title('artist', 'title')
+    await firefox.emit_properties(playback_status='Playing')
+
+    result = await playerctl.run('-p playerctld play-pause')
+
+    assert result.returncode == 0, result.stderr
+    assert firefox.play_pause_called
+    assert not mpv.play_pause_called

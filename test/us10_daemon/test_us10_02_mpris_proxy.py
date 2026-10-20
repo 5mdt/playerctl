@@ -296,3 +296,13 @@ async def test_cli_commands_through_the_daemon(
     assert mpris.open_uri_called_with == 'https://example.com/a.mp3'
 
     assert await run('metadata xesam:title') == 'title1'
+
+
+async def test_can_control_is_true_with_an_active_player(
+    playerctld, daemon_bus, mpris_factory
+):
+    # 5mdt/playerctl#30: rygel ignores MPRIS services that are not controllable
+    [mpris] = await mpris_factory('player1')
+    await mpris.set_artist_title('artist1', 'title1')
+
+    assert await get_property(daemon_bus, PLAYER, 'CanControl') is True

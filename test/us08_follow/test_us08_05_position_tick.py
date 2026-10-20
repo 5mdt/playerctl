@@ -1,7 +1,7 @@
 """US-8.5: As a bar author, I want a format that uses `position` to refresh
 every second."""
 
-from ..helpers.follow import expect_no_line, next_line
+from ..helpers.follow import expect_no_line, lines_until, next_line
 
 POSITION_FORMAT = '--format "{{duration(position)}}"'
 
@@ -58,3 +58,23 @@ async def test_tick_stops_and_resumes_with_playback_status(
 
     await mpris1.emit_properties(playback_status='Playing')
     assert (await next_line(proc)).startswith('Playing 0:0')
+
+
+async def test_track_change_without_seeked_resets_position(
+    playerctl, mpris_factory
+):
+    # 5mdt/playerctl#57: Strawberry and Finamp send no Seeked when the track
+    # changes, so the line for the new track showed the old track's position
+    [mpris] = await mpris_factory('test1')
+    mpris.playback_status = 'Playing'
+    mpris.position = 30000000
+    await mpris.set_artist_title('artist', 'one')
+    proc = await playerctl.start(
+        'metadata --format "{{title}} {{duration(position)}}" --follow'
+    )
+    assert (await next_line(proc)).startswith('one 0:30')
+
+    mpris.position = 0  # the player's own position restarts, silently
+    await mpris.set_artist_title('artist', 'two')
+
+    await lines_until(proc, 'two 0:00', limit=3)

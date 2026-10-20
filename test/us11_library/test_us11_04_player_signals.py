@@ -155,3 +155,16 @@ async def test_status_is_fetched_when_track_change_omits_it(
     assert sorted(lines) == sorted(
         ['metadata Artist Title', 'play', 'playback-status Playing']
     )
+
+
+async def test_seeked_signal_has_no_critical_warnings(gi_start, mpris_factory):
+    # 5mdt/playerctl#59: a GLib-GObject-CRITICAL assertion was printed
+    [mpris] = await mpris_factory('sig')
+    proc = await gi_start("\n    import os; os.dup2(1, 2)" + CONNECT)
+
+    mpris.seeked_value = 123456
+    mpris.Seeked()
+    await mpris.ping()
+
+    assert await proc.queue.get() == 'seeked 123456'
+    assert proc.queue.empty(), proc.queue.get_nowait()

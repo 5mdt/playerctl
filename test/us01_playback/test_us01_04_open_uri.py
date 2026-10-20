@@ -84,3 +84,19 @@ async def test_open_without_uri_does_nothing(playerctl, mpris_factory):
     assert result.returncode in (0, 1)
     assert not result.stdout
     assert mpris.open_uri_called_with is None
+
+
+async def test_relative_path_with_brackets_becomes_absolute_file_uri(
+    playerctl, mpris_factory, tmp_path, monkeypatch
+):
+    # 5mdt/playerctl#22: a relative path with spaces and brackets
+    [mpris] = await mpris_factory('opener')
+    song = tmp_path / 'Disc [1]' / '01 Intro.mp3'
+    song.parent.mkdir()
+    song.write_bytes(b'')
+    monkeypatch.chdir(tmp_path)
+
+    result = await playerctl.run("-p opener open 'Disc [1]/01 Intro.mp3'")
+
+    assert result.returncode == 0, result.stderr
+    assert mpris.open_uri_called_with == song.as_uri()

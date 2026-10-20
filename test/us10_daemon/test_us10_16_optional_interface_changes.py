@@ -238,3 +238,22 @@ async def test_wrongly_typed_properties_do_not_crash_the_daemon(
 
     assert playerctld.returncode is None, playerctld.log
     assert any('unknown type' in line for line in playerctld.log)
+
+
+async def test_daemon_survives_a_player_with_playlists_present_at_start(
+    bus_address, playerctl, mpris_factory
+):
+    # 5mdt/playerctl#53, #62: playerctld died with mpd (mpd-mpris) already
+    # running when it was started
+    [mpris] = await mpris_factory('mpd', playlists=True)
+    await mpris.set_artist_title('artist1', 'title1')
+    playerctld = await start_playerctld(bus_address)
+
+    mpris.playlists.emit_properties_changed({'PlaylistCount': 3})
+    await mpris.ping()
+    await settle()
+
+    assert playerctld.returncode is None, playerctld.log
+    result = await playerctl.run('-p playerctld play')
+    assert result.returncode == 0, result.stderr
+    assert mpris.play_called
