@@ -1,3 +1,4 @@
+---
 name: playerctl
 base: core18
 version: '2.2.1+git'
@@ -15,7 +16,7 @@ confinement: strict
 parts:
   playerctl:
     plugin: meson
-    source: https://github.com/altdesktop/playerctl
+    source: https://github.com/5mdt/playerctl
     source-type: git
     meson-parameters:
       - -Dintrospection=false
@@ -38,12 +39,17 @@ slots:
 apps:
   playerctl:
     command: playerctl
-    slots: [ system-observe, desktop-legacy ]
+    slots:
+      - system-observe
+      - desktop-legacy
     environment:
       LD_LIBRARY_PATH: $SNAP/usr/local/lib/$SNAPCRAFT_ARCH_TRIPLET
 
   playerctld:
     command: playerctld
-    slots: [ dbus-svc, system-observe, desktop-legacy ]
+    slots:
+      - dbus-svc
+      - system-observe
+      - desktop-legacy
     environment:
       LD_LIBRARY_PATH: $SNAP/usr/local/lib/$SNAPCRAFT_ARCH_TRIPLET

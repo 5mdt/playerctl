@@ -1,0 +1,27 @@
+# Maintainer: {{ maintainer.name }} <{{ maintainer.email }}>
+# The 5mdt fork of playerctl. The checksum is filled in for the released
+# tarball by `make release-assets`; SKIP is only for local builds.
+pkgname={{ arch.pkgname }}
+_name={{ name }}
+pkgver={{ version }}
+pkgrel={{ release }}
+pkgdesc='{{ summary_full }} (5mdt fork)'
+arch=({{ arch.arches | join(' ') }})
+url='{{ homepage }}'
+license=({{ license }})
+depends=({{ arch.depends | join(' ') }})
+makedepends=({{ arch.makedepends | join(' ') }})
+provides=("$_name=$pkgver" libplayerctl.so)
+conflicts=("$_name")
+source=("$_name-$pkgver.tar.xz::$url/releases/download/v$pkgver/$_name-$pkgver.tar.xz")
+sha256sums=({{ sha256 or 'SKIP' }})
+
+build() {
+  arch-meson "$_name-$pkgver" build {{ meson_flags }}
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 "$_name-$pkgver/LICENSE.md" -t "$pkgdir/usr/share/licenses/$pkgname"
+}

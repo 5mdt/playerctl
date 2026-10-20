@@ -1,0 +1,60 @@
+[project]
+name = "playerctl-tests"
+version = "2.5.0"
+description = "Test suite and examples for playerctl"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "dbus-next",
+    "meson",
+    "pytest",
+    "pytest-timeout",
+    "pytest-asyncio",
+    "ruff",
+]
+
+# pinned C tooling, shared by the tooling image and CONTAINER=0 host runs
+lint = [
+    "clang-format==22.1.8",
+    "clang-tidy==22.1.8",
+]
+
+# renders the package manifests, see scripts/render-packaging.py
+packaging = [
+    "jinja2",
+    "pyyaml",
+]
+
+# for the libplayerctl tests (test/us11_library), which skip without it. Needs
+# cairo and python headers to build; 3.50 builds against libgirepository1.0-dev,
+# 3.52+ needs girepository-2.0.
+gi = [
+    "PyGObject<3.51",
+]
+
+[tool.pytest.ini_options]
+timeout = 5
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 79
+extend-exclude = ["build", "subprojects"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E402", "F722"]
+
+# F821 is still relevant, but causes too many false positives in tests and
+# examples
+[tool.ruff.lint.per-file-ignores]
+"test/*" = ["F821"]
+"examples/*" = ["F821"]
+"**/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "preserve"

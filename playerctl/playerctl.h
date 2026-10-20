@@ -23,7 +23,8 @@
 #define __PLAYERCTL_INSIDE__
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include <playerctl/playerctl-enum-types.h>

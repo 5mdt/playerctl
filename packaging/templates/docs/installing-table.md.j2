@@ -1,0 +1,5 @@
+| {{ 'Distribution'.ljust(w_title) }} | {{ 'Install command'.ljust(w_cmd) }} |
+|{{ '-' * (w_title + 2) }}|{{ '-' * (w_cmd + 2) }}|
+{% for d in distros %}
+| {{ d.title.ljust(w_title) }} | {{ d.install_cmd.ljust(w_cmd) }} |
+{% endfor %}

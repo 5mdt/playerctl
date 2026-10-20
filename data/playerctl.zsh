@@ -15,7 +15,7 @@ __playerctl_ctx() {
 }
 
 local -a playercmd_loop=(/$'(none|track|playlist)\0'/ ':(none track playlist)')
-local -a playercmd_shuffle=(/$'(on|off)\0'/ ':(on off)')
+local -a playercmd_shuffle=(/$'(on|off|toggle)\0'/ ':(on off toggle)')
 
 (( $+functions[_playerctl_players] )) ||
 _playerctl_players() {

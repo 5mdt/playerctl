@@ -1,0 +1,7 @@
+{{ name }} ({{ version }}-{{ release }}) unstable; urgency=medium
+
+{% for entry in changelog %}
+  * {{ entry }}
+{% endfor %}
+
+ -- {{ maintainer.name }} <{{ maintainer.email }}>  {{ date_rfc2822 }}

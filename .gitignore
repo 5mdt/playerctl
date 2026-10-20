@@ -2,9 +2,12 @@ tags
 .clang_complete
 /build
 /mesonbuild
-/playerctl-fpm
 *.swp
 *.swo
 *.swn
 *.snap
 /env
+.venv/
+__pycache__/
+.ruff_cache/
+.pytest_cache/

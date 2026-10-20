@@ -1,0 +1,67 @@
+---
+name: Bug report
+description: Playerctl behaves incorrectly
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. If one specific player misbehaves, use the
+        "Player compatibility" form instead.
+  - type: input
+    id: version
+    attributes:
+      label: Playerctl version
+      description: Output of `playerctl --version`
+      placeholder: v2.4.1
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and desktop environment
+      placeholder: Fedora 44, GNOME
+    validations:
+      required: true
+  - type: input
+    id: player
+    attributes:
+      label: Player name and version
+      placeholder: mpv 0.38
+    validations:
+      required: true
+  - type: dropdown
+    id: playerctld
+    attributes:
+      label: Is playerctld running?
+      options:
+        - "Yes"
+        - "No"
+        - Don't know
+  - type: textarea
+    id: command
+    attributes:
+      label: Command run
+      render: shell
+      placeholder: playerctl --player=mpv metadata --format '{{ title }}'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: Re-run the command with `G_MESSAGES_DEBUG=playerctl` set and paste the output.
+      render: text

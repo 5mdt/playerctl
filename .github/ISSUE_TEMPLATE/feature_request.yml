@@ -1,0 +1,27 @@
+---
+name: Feature request
+description: Suggest a new feature or change
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Relevant specification or standard
+      description: For example the MPRIS section the feature relies on. This fork follows existing specs first.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

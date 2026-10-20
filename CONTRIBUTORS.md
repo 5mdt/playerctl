@@ -1,0 +1,26 @@
+A list of contributors to playerctl, sorted alphabetically on last names. Please keep this list sorted when adding yourself.
+
+- actondev chris.actondev@gmail.com
+- Pedro Alves pta2002@pta2002.com
+- David Bittner bittneradave@gmail.com
+- Benjamin Brownlee benjamin.brownlee1@gmail.com
+- Vladimir Budylnikov github@nett00n.org
+- busybox planetgeek11@gmail.com
+- Patrick Chin p.ch@live.co.uk
+- cnt0 sarum9n@gmail.com
+- Tony Crisci tony@dubstepdish.com
+- duxks duxkt-pakt@mailmetrash.com
+- Orestis Floros orestisf1993@gmail.com
+- Tim Gates tim.gates@iress.com
+- Mark Gross mark.gross2001@gmail.com
+- Jente Hidskes hjdskes@gmail.com
+- Sara Johnsson 46252070+Fendse@users.noreply.github.com
+- Jeremy Klotz jtklotz77@gmail.com
+- Maciej Matraszek matraszek.maciej@gmail.com
+- Nick Morrott knowledgejunkie@gmail.com
+- Dan Printzell xwildn00bx@gmail.com
+- Dov Salomon dsalomon@nyu.edu
+- sentriz senan@senan.xyz
+- Rasmus Thomsen cogitri@exherbo.org
+- Sudaraka Wijesinghe sudaraka@sudaraka.org
+- xdavidwu xdavidwuph@gmail.com

@@ -44,26 +44,28 @@
 
 /**
  * PlayerctlSource
- * @PLAYERCTL_SOURCE_NONE: Only for unitialized players. Source will be chosen automatically.
+ * @PLAYERCTL_SOURCE_NONE: Only for unitialized players. Source will be chosen
+ * automatically.
  * @PLAYERCTL_SOURCE_DBUS_SESSION: The player is on the DBus session bus.
  * @PLAYERCTL_SOURCE_DBUS_SYSTEM: The player is on the DBus system bus.
  *
  * The source of the name used to control the player.
  *
  */
-typedef enum {
-    PLAYERCTL_SOURCE_NONE,
-    PLAYERCTL_SOURCE_DBUS_SESSION,
-    PLAYERCTL_SOURCE_DBUS_SYSTEM,
+typedef enum
+{
+  PLAYERCTL_SOURCE_NONE,
+  PLAYERCTL_SOURCE_DBUS_SESSION,
+  PLAYERCTL_SOURCE_DBUS_SYSTEM,
 } PlayerctlSource;
 
 typedef struct _PlayerctlPlayerName PlayerctlPlayerName;
 
-#define PLAYERCTL_TYPE_PLAYER_NAME (playerctl_player_name_get_type())
+#define PLAYERCTL_TYPE_PLAYER_NAME (playerctl_player_name_get_type ())
 
-void playerctl_player_name_free(PlayerctlPlayerName *name);
-PlayerctlPlayerName *playerctl_player_name_copy(PlayerctlPlayerName *name);
-GType playerctl_player_name_get_type(void);
+void playerctl_player_name_free (PlayerctlPlayerName *name);
+PlayerctlPlayerName *playerctl_player_name_copy (PlayerctlPlayerName *name);
+GType playerctl_player_name_get_type (void);
 
 /**
  * PlayerctlPlayerName:
@@ -74,10 +76,11 @@ GType playerctl_player_name_get_type(void);
  * Event container for when names of players appear or disapear as the
  * controllable media player applications open and close.
  */
-struct _PlayerctlPlayerName {
-    gchar *name;
-    gchar *instance;
-    PlayerctlSource source;
+struct _PlayerctlPlayerName
+{
+  gchar *name;
+  gchar *instance;
+  PlayerctlSource source;
 };
 
 #endif /* __PLAYERCTL_PLAYER_NAME_H__ */

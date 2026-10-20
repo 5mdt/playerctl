@@ -1,0 +1,41 @@
+---
+name: Docs
+'on':
+  push:
+    branches:
+      - develop
+    paths:
+      - 'playerctl/**'
+      - 'doc/**'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - 'Dockerfile*'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch: null
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API documentation in the tooling image
+        run: make docs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/container/doc/reference/html
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

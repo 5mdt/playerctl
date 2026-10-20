@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+# shellcheck shell=bash
+# Sourced by bash-completion, not executed: no shebang.
 
 _playerctl_completions() {
 	local cur="${COMP_WORDS[$COMP_CWORD]}"
@@ -28,15 +29,15 @@ _playerctl_completions() {
 
 	case $prev in 
 		loop)
-			COMPREPLY=($(compgen -W "none track playlist" -- "$cur"))
+			mapfile -t COMPREPLY < <(compgen -W "none track playlist" -- "$cur")
 			return 0
 			;;
 		shuffle)
-			COMPREPLY=($(compgen -W "on off" -- "$cur"))
+			mapfile -t COMPREPLY < <(compgen -W "on off toggle" -- "$cur")
 			return 0
 			;;
 		-p|--player=|-i|--ignore-player=)
-			COMPREPLY=($(compgen -W "$(playerctl --list-all)" -- "$cur"))
+			mapfile -t COMPREPLY < <(compgen -W "$(playerctl --list-all)" -- "$cur")
 			return 0
 			;;
 		-f|--format)
@@ -52,7 +53,7 @@ _playerctl_completions() {
 			return 0
 			;;
 		*)
-			COMPREPLY=($(compgen -W "$root_words" -- "$cur"))
+			mapfile -t COMPREPLY < <(compgen -W "$root_words" -- "$cur")
 			return 0
 			;;
 	esac
