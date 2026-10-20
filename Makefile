@@ -121,7 +121,7 @@ MANIFEST_SOURCES = packaging/package.yaml $(shell find packaging/templates -type
 
 PKG_VERSION = $(shell sed -n "s/^version: *['\"]*\([^'\"]*\)['\"]*$$/\1/p" packaging/package.yaml)
 
-version: ## print the version from packaging/package.yaml
+version: manifests-sync ## copy the version from packaging/package.yaml to meson.build, pyproject.toml, uv.lock and doc/installing.md, fail if doc/CHANGELOG.md has no section for it, and print it
 	@echo $(PKG_VERSION)
 
 tag: ## create the v<version> tag on HEAD from packaging/package.yaml (skips an existing tag; PUSH=1 also pushes it)
@@ -178,7 +178,7 @@ manifests: $(DEV_DEPS) ## render the package manifests from packaging/package.ya
 
 manifests-sync: $(DEV_DEPS) ## copy the version from packaging/package.yaml to meson.build, pyproject.toml and uv.lock, and update the distro table in doc/installing.md
 	$(call require,$(call need,uv))
-	$(RUN) uv run --group packaging scripts/render-packaging.py --sync
+	$(RUN_GIT) uv run --group packaging scripts/render-packaging.py --sync
 
 manifests-check: $(DEV_DEPS) ## fail if the version copies or the distro table in doc/installing.md are out of date
 	$(call require,$(call need,uv))

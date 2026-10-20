@@ -187,6 +187,8 @@ def render_table(ctx):
 
 def sync(ctx, check):
     """Update the copies of generated content; with CHECK only report."""
+    # a release needs its changelog section, fail before touching any file
+    changelog_entries(ctx['version'])
     stale = False
     for name in [*VERSION_FILES, 'doc/installing.md']:
         path = ROOT / name

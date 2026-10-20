@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.6.0
+
+### Bugfixes
+- `play`, `pause`, `play-pause`, `stop`, `next`, `previous` and `open` no longer wait for the player to answer `Properties.GetAll`, so they reach slow players such as spotifyd at once (#10)
+- `position` no longer crashes when a player reports a `mpris:trackid` that is not a valid object path, such as Totem (#33)
+- `playerctld` no longer aborts on an unexpected `PropertiesChanged`, which crashed it when Rhythmbox started playing (#24)
+- No abort on a malformed reply to `Properties.Get`, which crashed `metadata --follow` with Harmonoid (#44)
+
+### Features
+
+- New `load-properties` property on `PlayerctlPlayer` to connect without loading all the properties of the player first
+
+### Maint
+
+- `make version` copies the version from `packaging/package.yaml` to `meson.build`, `pyproject.toml`, `uv.lock` and `doc/installing.md`, and fails if `doc/CHANGELOG.md` has no section for it
+
 ## Version 2.5.0
 
 - Repo forked

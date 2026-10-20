@@ -269,7 +269,7 @@ wheels = [
 
 [[package]]
 name = "playerctl-tests"
-version = "2.5.0"
+version = "2.6.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

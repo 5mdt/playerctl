@@ -16,6 +16,20 @@ Some players may require installation of a plugin or other configuration.
 
 In Quod Libet open the window File -> Plugins and select the plugin called *MPRIS D-Bus Support*.
 
+## Commands Take Seconds
+
+Some players, spotifyd for one, are slow to answer the request for all of their properties that playerctl makes when it connects. A player that never answers makes a command wait for the 25 second D-Bus timeout.
+
+`play`, `pause`, `play-pause`, `stop`, `next`, `previous` and `open` do not make that request, they read the few properties they need one at a time. Commands that read the state of the player (`status`, `metadata`, `position`, `volume`, `loop`, `shuffle`) and `--follow` still need all the properties and wait for a slow player.
+
+To see where the time goes, watch the session bus while you run the command:
+
+```
+dbus-monitor --session "type='method_call'" "type='method_return'"
+```
+
+A long gap between a `GetAll` call and its reply is the player being slow, not playerctl.
+
 ## Playerctld Autostart Issues
 
 If `playerctld` does not autostart and you use `xinit` and systemd, you might need this fix to enable DBus activation to work correctly:

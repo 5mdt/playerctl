@@ -51,6 +51,7 @@ enum
   PROP_VOLUME,
   PROP_METADATA,
   PROP_POSITION,
+  PROP_LOAD_PROPERTIES,
 
   PROP_CAN_CONTROL,
   PROP_CAN_PLAY,
@@ -93,6 +94,7 @@ struct _PlayerctlPlayerPrivate
   PlayerctlSource source;
   GError *init_error;
   gboolean initted;
+  gboolean load_properties;
   PlayerctlPlaybackStatus cached_status;
   gint64 cached_position;
   gchar *cached_track_id;
@@ -425,6 +427,51 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
   return metadata;
 }
 
+// Reads one of the boolean Can* properties of the player interface. The value
+// comes from the proxy's property cache. A player created without
+// load-properties has no cache (GDBus does not keep it up to date for such a
+// proxy), so the property is fetched with a Properties.Get on every read. A
+// failed or malformed reply reads as FALSE, like a property missing from the
+// cache.
+static gboolean
+player_get_capability (PlayerctlPlayer *self, const gchar *name)
+{
+  GDBusProxy *proxy = G_DBUS_PROXY (self->priv->proxy);
+  GVariant *value = NULL;
+
+  if (self->priv->load_properties)
+    {
+      value = g_dbus_proxy_get_cached_property (proxy, name);
+    }
+  else
+    {
+      GError *error = NULL;
+      GVariant *reply = g_dbus_proxy_call_sync (
+          proxy, "org.freedesktop.DBus.Properties.Get",
+          g_variant_new ("(ss)", PLAYER_IFACE, name), G_DBUS_CALL_FLAGS_NONE,
+          -1, NULL, &error);
+      if (reply == NULL)
+        {
+          g_debug ("could not get %s: %s", name, error->message);
+          g_error_free (error);
+          return FALSE;
+        }
+
+      value = properties_get_reply_value (reply);
+      g_variant_unref (reply);
+    }
+
+  if (value == NULL)
+    {
+      return FALSE;
+    }
+
+  gboolean result = g_variant_is_of_type (value, G_VARIANT_TYPE_BOOLEAN)
+                    && g_variant_get_boolean (value);
+  g_variant_unref (value);
+  return result;
+}
+
 static void
 playerctl_player_set_property (GObject *object, guint property_id,
                                const GValue *value, GParamSpec *pspec)
@@ -445,6 +492,10 @@ playerctl_player_set_property (GObject *object, guint property_id,
 
     case PROP_SOURCE:
       self->priv->source = g_value_get_enum (value);
+      break;
+
+    case PROP_LOAD_PROPERTIES:
+      self->priv->load_properties = g_value_get_boolean (value);
       break;
 
     case PROP_VOLUME:
@@ -479,6 +530,10 @@ playerctl_player_get_property (GObject *object, guint property_id,
 
     case PROP_SOURCE:
       g_value_set_enum (value, self->priv->source);
+      break;
+
+    case PROP_LOAD_PROPERTIES:
+      g_value_set_boolean (value, self->priv->load_properties);
       break;
 
     case PROP_PLAYBACK_STATUS:
@@ -574,9 +629,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
           g_value_set_boolean (value, FALSE);
           break;
         }
-      g_value_set_boolean (
-          value,
-          org_mpris_media_player2_player_get_can_control (self->priv->proxy));
+      g_value_set_boolean (value, player_get_capability (self, "CanControl"));
       break;
 
     case PROP_CAN_PLAY:
@@ -585,8 +638,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
           g_value_set_boolean (value, FALSE);
           break;
         }
-      g_value_set_boolean (value, org_mpris_media_player2_player_get_can_play (
-                                      self->priv->proxy));
+      g_value_set_boolean (value, player_get_capability (self, "CanPlay"));
       break;
 
     case PROP_CAN_PAUSE:
@@ -595,9 +647,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
           g_value_set_boolean (value, FALSE);
           break;
         }
-      g_value_set_boolean (
-          value,
-          org_mpris_media_player2_player_get_can_pause (self->priv->proxy));
+      g_value_set_boolean (value, player_get_capability (self, "CanPause"));
       break;
 
     case PROP_CAN_SEEK:
@@ -606,8 +656,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
           g_value_set_boolean (value, FALSE);
           break;
         }
-      g_value_set_boolean (value, org_mpris_media_player2_player_get_can_seek (
-                                      self->priv->proxy));
+      g_value_set_boolean (value, player_get_capability (self, "CanSeek"));
       break;
 
     case PROP_CAN_GO_NEXT:
@@ -616,9 +665,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
           g_value_set_boolean (value, FALSE);
           break;
         }
-      g_value_set_boolean (
-          value,
-          org_mpris_media_player2_player_get_can_go_next (self->priv->proxy));
+      g_value_set_boolean (value, player_get_capability (self, "CanGoNext"));
       break;
 
     case PROP_CAN_GO_PREVIOUS:
@@ -628,8 +675,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
           break;
         }
       g_value_set_boolean (value,
-                           org_mpris_media_player2_player_get_can_go_previous (
-                               self->priv->proxy));
+                           player_get_capability (self, "CanGoPrevious"));
       break;
 
     default:
@@ -747,6 +793,24 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
       "only in a future version. Use playerctl_player_set_volume() to set the "
       "volume.",
       0, 100, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  /**
+   * PlayerctlPlayer:load-properties:
+   *
+   * Whether to fetch all the properties of the player when connecting to it.
+   * This is the default. A player can be slow to answer that request, and the
+   * connection waits for it.
+   *
+   * When %FALSE the properties are not fetched up front and not kept up to
+   * date. The `can-*` properties are read from the player each time they are
+   * read, and the other properties are not available. Use it for one-shot
+   * commands such as play or next.
+   */
+  obj_properties[PROP_LOAD_PROPERTIES] = g_param_spec_boolean (
+      "load-properties", "Load properties",
+      "Whether to fetch all the properties of the player when connecting",
+      TRUE,
+      G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   obj_properties[PROP_POSITION] = g_param_spec_int64 (
       "position", "Player position",
@@ -1164,7 +1228,10 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
   g_strfreev (split);
 
   player->priv->proxy = org_mpris_media_player2_player_proxy_new_for_bus_sync (
-      pctl_source_to_bus_type (player->priv->source), G_DBUS_PROXY_FLAGS_NONE,
+      pctl_source_to_bus_type (player->priv->source),
+      player->priv->load_properties
+          ? G_DBUS_PROXY_FLAGS_NONE
+          : G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
       bus_name, "/org/mpris/MediaPlayer2", NULL, &tmp_error);
   if (tmp_error != NULL)
     {

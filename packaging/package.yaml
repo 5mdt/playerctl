@@ -6,7 +6,7 @@
 # soversion and typelib version (from the major version), the release notes
 # (doc/CHANGELOG.md) and the date (SOURCE_DATE_EPOCH or the HEAD commit).
 name: playerctl
-version: '2.5.0'
+version: '2.6.0'
 # package revision of the version, reset to 1 on every new version
 release: 1
 maintainer:
