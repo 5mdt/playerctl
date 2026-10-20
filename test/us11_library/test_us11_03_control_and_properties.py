@@ -299,3 +299,23 @@ async def test_getters_are_none_without_metadata(gi_run, mpris_factory):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ['None None None', 'None', 'None']
+
+
+async def test_volume_property_follows_set_volume(gi_run, mpris_factory):
+    # 5mdt/playerctl#42: players such as cmus change the volume without
+    # emitting PropertiesChanged, so the cached property stayed stale
+    [mpris] = await mpris_factory('lib')
+    mpris.volume = 0.5
+    await mpris.ping()
+
+    result = await gi_run("""
+        player = Playerctl.Player.new('lib')
+        player.set_volume(0.8)
+        loop = GLib.MainLoop()
+        GLib.timeout_add(500, loop.quit)
+        loop.run()
+        out(player.props.volume)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert float(result.stdout) == 0.8

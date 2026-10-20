@@ -105,3 +105,24 @@ async def test_new_without_source_finds_system_player(gi_run, mpris_factory):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == ['dbus-system']
+
+
+@pytest.mark.timeout(60)
+async def test_creating_players_in_a_loop_does_not_leak(gi_run, mpris_factory):
+    # 5mdt/playerctl#51: memory grew by about 2 KiB per created Player
+    await mpris_factory('leak')
+
+    result = await gi_run("""
+        def rss_kib():
+            with open('/proc/self/statm') as f:
+                return int(f.read().split()[1]) * 4
+
+        for i in range(2000):
+            Playerctl.Player.new_from_name(Playerctl.list_players()[0])
+            if i == 300:
+                base = rss_kib()
+        out(rss_kib() - base)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout) < 1024, f'grew by {result.stdout} KiB'

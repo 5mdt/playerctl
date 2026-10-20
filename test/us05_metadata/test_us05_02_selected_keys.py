@@ -85,3 +85,32 @@ async def test_missing_key_among_present_ones(playerctl, mpris_factory):
     cmd = await playerctl.run('-p meta metadata title album')
 
     assert 'A Title' in cmd.stdout.splitlines()
+
+
+async def test_multiple_keys_without_player_flag(playerctl, meta_player):
+    # 5mdt/playerctl#49: only the last key was printed
+    cmd = await playerctl.run('metadata artist title')
+
+    assert cmd.returncode == 0, cmd.stderr
+    assert cmd.stdout.splitlines() == ['First, Second', 'A Title']
+
+
+async def test_keys_come_from_one_player(playerctl, mpris_factory):
+    # 5mdt/playerctl#19: a key the first player lacks was taken from the next
+    # player, mixing the metadata of two players
+    [first, second] = await mpris_factory('plain-a', 'plain-b')
+    first.metadata = {'xesam:title': Variant('s', 'TitleA')}
+    second.metadata = {
+        'xesam:title': Variant('s', 'TitleB'),
+        'xesam:artist': Variant('as', ['ArtistB']),
+    }
+    await first.ping()
+    await second.ping()
+
+    artist = await playerctl.run('metadata artist')
+    title = await playerctl.run('metadata title')
+
+    assert artist.returncode == 0, artist.stderr
+    assert title.returncode == 0, title.stderr
+    assert title.stdout == 'TitleA'
+    assert artist.stdout != 'ArtistB'

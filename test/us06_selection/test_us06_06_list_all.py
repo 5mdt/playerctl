@@ -67,3 +67,16 @@ async def test_list_all_short_flag(playerctl, mpris_factory):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ['basics1']
+
+
+async def test_list_all_with_no_selected_player_is_not_an_error(
+    playerctl, mpris_factory
+):
+    # altdesktop/playerctl#47: an empty list is a valid result, unlike a
+    # command that could not act on a player, so --list-all exits 0
+    await mpris_factory('basics1')
+
+    result = await playerctl.run('--list-all --player missing')
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ''
