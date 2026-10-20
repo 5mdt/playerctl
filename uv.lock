@@ -107,6 +107,19 @@ wheels = [
 ]
 
 [[package]]
+name = "lizard"
+version = "1.24.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pathspec" },
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/05/87/0352f911886e8b10b06b36dca674b9da91a25112bd08253b84346a1815e5/lizard-1.24.1.tar.gz", hash = "sha256:c022cf1aac8170994b175e2a700f0535088f66da7e6bdf6c59fbd3b716cd10ac", size = 112474, upload-time = "2026-10-05T22:50:11.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/2d/6e9562b7f3aa3f4e3b8899be26b4dbc67752340b2f63beeba441956aff58/lizard-1.24.1-py2.py3-none-any.whl", hash = "sha256:746060a3e9a375af7340b2d4c6aab307b8a8b4199339c36ddc7afc4188b53d1c", size = 122005, upload-time = "2026-10-05T22:50:09.48Z" },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -268,6 +281,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pathspec"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/82/42f767fc1c1143d6fd36efb827202a2d997a375e160a71eb2888a925aac1/pathspec-1.1.1.tar.gz", hash = "sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a", size = 135180, upload-time = "2026-04-27T01:46:08.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189", size = 57328, upload-time = "2026-04-27T01:46:07.06Z" },
+]
+
+[[package]]
 name = "playerctl-tests"
 version = "2.6.0"
 source = { virtual = "." }
@@ -287,6 +309,7 @@ gi = [
 lint = [
     { name = "clang-format" },
     { name = "clang-tidy" },
+    { name = "lizard" },
 ]
 packaging = [
     { name = "jinja2" },
@@ -308,6 +331,7 @@ gi = [{ name = "pygobject", specifier = "<3.51" }]
 lint = [
     { name = "clang-format", specifier = "==22.1.8" },
     { name = "clang-tidy", specifier = "==22.1.8" },
+    { name = "lizard", specifier = "==1.24.1" },
 ]
 packaging = [
     { name = "jinja2" },

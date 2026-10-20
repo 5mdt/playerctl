@@ -468,7 +468,9 @@ class MprisPlayer(ServiceInterface):
         self.emit_properties_changed(changed)
         await self.ping()
 
-    async def send_properties_changed(self, changed, invalidated=()):
+    async def send_properties_changed(
+        self, changed, invalidated=(), interface=PLAYER_INTERFACE
+    ):
         '''Emit PropertiesChanged with exactly this body: `changed` maps
         property names to `Variant`s of any type (even a wrong one) and
         `invalidated` lists names the client must re-read.'''
@@ -478,7 +480,7 @@ class MprisPlayer(ServiceInterface):
                 PROPERTIES_INTERFACE,
                 'PropertiesChanged',
                 'sa{sv}as',
-                [PLAYER_INTERFACE, dict(changed), list(invalidated)],
+                [interface, dict(changed), list(invalidated)],
             )
         )
         await self.ping()

@@ -12,14 +12,14 @@ PLAYERCTLD_NAME = 'org.mpris.MediaPlayer2.playerctld'
 MPRIS_PATH = '/org/mpris/MediaPlayer2'
 
 
-async def start_playerctld(bus_address, debug=False):
+async def start_playerctld(bus_address, debug=False, env=None):
     # stop a playerctld that is already on this test bus (e.g. one started by
     # dbus activation), without touching any other playerctld on the system
     pid = await name_owner_pid(bus_address, PLAYERCTLD_NAME)
     if pid is not None:
         os.kill(pid, signal.SIGTERM)
         await wait_for_name(bus_address, PLAYERCTLD_NAME, present=False)
-    env = os.environ.copy()
+    env = {**os.environ, **(env or {})}
     env['DBUS_SESSION_BUS_ADDRESS'] = bus_address
     env['G_MESSAGES_DEBUG'] = 'playerctl'
     proc = await asyncio.create_subprocess_shell(
