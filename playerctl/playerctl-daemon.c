@@ -235,7 +235,15 @@ player_update_properties (struct Player *player, const char *interface_name,
       if (interface == PLAYER && g_strcmp0 (key, "Position") == 0)
         {
           // gets cached separately (never counts as changed)
-          player->position = g_variant_get_int64 (prop_value);
+          if (g_variant_is_of_type (prop_value, G_VARIANT_TYPE_INT64))
+            {
+              player->position = g_variant_get_int64 (prop_value);
+            }
+          else
+            {
+              g_debug ("%s: ignoring Position of type %s", player->well_known,
+                       g_variant_get_type_string (prop_value));
+            }
           goto loop_out;
         }
       GVariant *cache_value
@@ -324,8 +332,17 @@ player_update_position_sync (struct Player *player,
     }
   GVariant *position_unwrapped = g_variant_get_child_value (reply, 0);
   GVariant *position_variant = g_variant_get_variant (position_unwrapped);
-  player->position = g_variant_get_int64 (position_variant);
-  g_debug ("new position: %ld", player->position);
+  if (g_variant_is_of_type (position_variant, G_VARIANT_TYPE_INT64))
+    {
+      player->position = g_variant_get_int64 (position_variant);
+      g_debug ("new position: %ld", player->position);
+    }
+  else
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                   "Position has type %s, expected x",
+                   g_variant_get_type_string (position_variant));
+    }
   g_variant_unref (position_variant);
   g_variant_unref (position_unwrapped);
   g_variant_unref (reply);

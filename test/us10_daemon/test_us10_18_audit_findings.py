@@ -15,6 +15,7 @@ from ..helpers.gi import FATAL_CRITICALS
 from ..helpers.mpris import (
     PLAYER_INTERFACE,
     PLAYLISTS_INTERFACE,
+    PROPERTIES_INTERFACE,
     ROOT_INTERFACE,
     TRACKLIST_INTERFACE,
     gated,
@@ -138,6 +139,31 @@ async def test_wrongly_typed_position_does_not_abort_the_daemon(
 
     await mpris.send_properties_changed({'Position': Variant('s', 'soon')})
     await mpris.send_properties_changed({'Volume': Variant('s', 'loud')})
+    await settle()
+
+    assert playerctld.returncode is None, playerctld.log
+
+
+async def test_wrongly_typed_position_reply_does_not_abort_the_daemon(
+    bus_address, mpris_factory
+):
+    # audit: playerctl-daemon.c:325-327 g_variant_get_int64 on the reply to
+    # Get Position, read when a player becomes active again
+    def configure(gate):
+        def wrong_type(reply):
+            reply.body[0] = Variant('s', 'soon')
+            return reply
+
+        gate.rewrite('Get', PROPERTIES_INTERFACE, PLAYER_INTERFACE, wrong_type)
+
+    [first] = await mpris_factory('player1', prepare=gated(configure))
+    await first.set_artist_title('artist1', 'title1')
+    playerctld = await start_playerctld(bus_address, env=FATAL_CRITICALS)
+    [second] = await mpris_factory('player2')
+    await second.set_artist_title('artist2', 'title2')
+    await settle()
+
+    await first.set_artist_title('artist3', 'title3')
     await settle()
 
     assert playerctld.returncode is None, playerctld.log
