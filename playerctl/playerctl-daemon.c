@@ -374,7 +374,14 @@ context_emit_active_player_changed (struct PlayerctldContext *ctx,
         }
     }
 
-  if (player != NULL)
+  if (player != NULL
+      && (player->player_properties == NULL
+          || player->root_properties == NULL))
+    {
+      g_warning ("active player '%s' has no properties, not announcing it",
+                 player->well_known);
+    }
+  else if (player != NULL)
     {
       g_debug ("emitting signals for new active player: '%s'",
                player->well_known);
@@ -1512,8 +1519,10 @@ player_signal_proxy_callback (GDBusConnection *connection,
            "signal_name=%s",
            sender_name, object_path, interface_name, signal_name);
 
-  if (player == ctx->pending_active)
+  if (g_queue_find (ctx->pending_players, player) != NULL)
     {
+      // not usable until both property replies arrived (also covers a player
+      // whose reply failed and that is no longer pending_active)
       // TODO buffer seeked signals
       return;
     }

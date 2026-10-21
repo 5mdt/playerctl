@@ -3,6 +3,7 @@
 ## Version 2.6.0
 
 ### Bugfixes
+- `playerctld` no longer crashes when a player whose properties could not be read sends a signal after another player appeared
 - `position` and `volume` reject empty, non-finite, out-of-range and trailing-garbage arguments, `volume` is clamped to 0.0-1.0, and `volume ''` no longer reads out of bounds
 - `playerctld` no longer crashes on a player error without a body, and forwards the player's error message
 - `play`, `pause`, `play-pause`, `stop`, `next`, `previous` and `open` no longer wait for the player to answer `Properties.GetAll`, so they reach slow players such as spotifyd at once (#10)

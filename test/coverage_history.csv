@@ -87,3 +87,11 @@ time,commit,file,lines_total,lines_covered,line_percent,branches_total,branches_
 2026-10-21T09:20:32+00:00,3234d04,playerctl/playerctl-player-name.c,16,16,100.0,10,9,90.0
 2026-10-21T09:20:32+00:00,3234d04,playerctl/playerctl-player.c,740,579,78.2,421,269,63.9
 2026-10-21T09:20:32+00:00,3234d04,TOTAL,3350,2956,88.2,1739,1364,78.4
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-cli.c,758,711,93.8,376,329,87.5
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-common.c,173,167,96.5,104,93,89.4
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-daemon.c,797,642,80.6,339,234,69.0
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-formatter.c,672,663,98.7,406,372,91.6
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-player-manager.c,198,174,87.9,89,59,66.3
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-player-name.c,16,16,100.0,10,9,90.0
+2026-10-21T10:34:06+00:00,c217e07,playerctl/playerctl-player.c,740,579,78.2,421,269,63.9
+2026-10-21T10:34:06+00:00,c217e07,TOTAL,3354,2952,88.0,1745,1365,78.2
