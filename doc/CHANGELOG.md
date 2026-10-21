@@ -3,6 +3,7 @@
 ## Version 2.6.0
 
 ### Bugfixes
+- The library ignores `Volume`, `Shuffle`, `LoopStatus`, `PlaybackStatus` and `Metadata` changes of the wrong type instead of emitting garbage or GLib criticals, and no longer leaks a string on every `PropertiesChanged`
 - `playerctld` no longer crashes when a player whose properties could not be read sends a signal after another player appeared
 - `position` and `volume` reject empty, non-finite, out-of-range and trailing-garbage arguments, `volume` is clamped to 0.0-1.0, and `volume ''` no longer reads out of bounds
 - `playerctld` no longer crashes on a player error without a body, and forwards the player's error message

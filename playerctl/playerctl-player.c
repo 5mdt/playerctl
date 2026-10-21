@@ -184,27 +184,41 @@ metadata_get_track_id (GVariant *metadata)
   return NULL;
 }
 
+/* Looks up a changed property; a value of the wrong type is ignored. */
+static GVariant *
+lookup_property (GVariant *properties, const gchar *key,
+                 const GVariantType *type, const gchar *instance)
+{
+  GVariant *value = g_variant_lookup_value (properties, key, NULL);
+  if (value != NULL && !g_variant_is_of_type (value, type))
+    {
+      g_debug ("%s: ignoring %s of type %s", instance, key,
+               g_variant_get_type_string (value));
+      g_variant_unref (value);
+      return NULL;
+    }
+  return value;
+}
+
 static void
 playerctl_player_properties_changed_callback (
     GDBusProxy *_proxy, GVariant *changed_properties,
     const gchar *const *invalidated_properties, gpointer user_data)
 {
-  g_debug ("%s", g_variant_print (changed_properties, TRUE));
   PlayerctlPlayer *self = user_data;
   gchar *instance = self->priv->instance;
   g_debug ("%s: properties changed", instance);
 
-  // TODO probably need to replace this with an iterator
-  GVariant *metadata
-      = g_variant_lookup_value (changed_properties, "Metadata", NULL);
-  GVariant *playback_status
-      = g_variant_lookup_value (changed_properties, "PlaybackStatus", NULL);
-  GVariant *loop_status
-      = g_variant_lookup_value (changed_properties, "LoopStatus", NULL);
-  GVariant *volume
-      = g_variant_lookup_value (changed_properties, "Volume", NULL);
-  GVariant *shuffle
-      = g_variant_lookup_value (changed_properties, "Shuffle", NULL);
+  GVariant *metadata = lookup_property (changed_properties, "Metadata",
+                                        G_VARIANT_TYPE_VARDICT, instance);
+  GVariant *playback_status = lookup_property (
+      changed_properties, "PlaybackStatus", G_VARIANT_TYPE_STRING, instance);
+  GVariant *loop_status = lookup_property (changed_properties, "LoopStatus",
+                                           G_VARIANT_TYPE_STRING, instance);
+  GVariant *volume = lookup_property (changed_properties, "Volume",
+                                      G_VARIANT_TYPE_DOUBLE, instance);
+  GVariant *shuffle = lookup_property (changed_properties, "Shuffle",
+                                       G_VARIANT_TYPE_BOOLEAN, instance);
 
   if (shuffle != NULL)
     {

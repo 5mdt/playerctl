@@ -114,6 +114,11 @@ pctl_parse_loop_status (const gchar *status_str, PlayerctlLoopStatus *status)
 gchar *
 pctl_print_gvariant (GVariant *value)
 {
+  if (value == NULL)
+    {
+      return g_strdup ("");
+    }
+
   GString *printed = g_string_new ("");
   if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
     {
