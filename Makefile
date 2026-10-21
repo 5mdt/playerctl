@@ -1,4 +1,4 @@
-.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan docker-test coverage all precommit \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all precommit \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -230,10 +230,22 @@ test-local: ## build with meson on the host (CONTAINER=0), then run the pytest s
 	$(MAKE) build CONTAINER=0
 	PATH=$(BUILD_BIN):$$PATH GI_TYPELIB_PATH=$(BUILD_BIN) LD_LIBRARY_PATH=$(BUILD_BIN) dbus-run-session uv run --group gi pytest -sq
 
-test-container: ## build the image and run the tests in a container (podman or docker)
+# RECORD_HISTORY=1 appends the run to test/test_history.csv (make test) and also
+# to test/coverage_history.csv (make coverage); make precommit does. Each file is
+# restored from HEAD first (or removed if untracked), so a commit holds one run.
+RECORD_HISTORY ?=
+TEST_HISTORY ?= test/test_history.csv
+COVERAGE_HISTORY ?= test/coverage_history.csv
+restore = $(if $(RECORD_HISTORY),$(foreach f,$(1),git checkout HEAD -- $(f) 2>/dev/null || rm -f $(f);))
+# run a script in the test image with test/ and scripts/ mounted and $(1) as /out
+test-run = mkdir -p $(1) && $(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/$(1):/out:Z" -e GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null) -e RECORD_HISTORY=$(RECORD_HISTORY) playerctl-test bash scripts/$(2)
+
+test-container: ## run the C unit tests and the pytest suite in the test image and print a per-category outcome table; reports in build/test-report
 	$(call require,$(CONTAINER_ENGINE))
 	$(CONTAINER_ENGINE) build -t playerctl-test .
-	$(CONTAINER_ENGINE) run --rm $(if $(shell [ -t 0 ] && echo tty),-it) playerctl-test
+	rm -f build/test-report/*.xml build/test-report/summary.*
+	$(call restore,$(TEST_HISTORY))
+	$(call test-run,build/test-report,test-report.sh build)
 
 test-c: ## build and run the C unit tests (test/c) with meson test in the test image
 	$(call require,$(CONTAINER_ENGINE))
@@ -243,16 +255,31 @@ test-c: ## build and run the C unit tests (test/c) with meson test in the test i
 test-asan: ## run the C unit tests and the CLI/daemon pytest suites against an AddressSanitizer + UBSan build in the test image; reports in build/asan
 	$(call require,$(CONTAINER_ENGINE))
 	$(CONTAINER_ENGINE) build -t playerctl-test .
-	rm -rf build/asan && mkdir -p build/asan
-	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/build/asan:/out:Z" playerctl-test bash scripts/test-asan.sh
+	rm -rf build/asan
+	$(call test-run,build/asan,test-asan.sh)
 
-test: test-container ## run the tests in a container (alias for test-container)
+test: test-container ## run the C and pytest tests in a container with a per-category outcome table (alias for test-container)
 
-coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage
+coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage; RECORD_HISTORY=1 also appends to the test and coverage history CSVs
 	$(call require,$(CONTAINER_ENGINE))
 	$(CONTAINER_ENGINE) build -t playerctl-test .
-	mkdir -p build/coverage
-	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/build/coverage:/out:Z" playerctl-test bash scripts/coverage.sh
+	$(call restore,$(TEST_HISTORY) $(COVERAGE_HISTORY))
+	$(call test-run,build/coverage,coverage.sh)
+
+CHART ?= build/test-history.png
+test-history-chart: $(DEV_DEPS) ## chart the test and coverage histories (TEST_HISTORY, COVERAGE_HISTORY) to CHART=build/test-history.png (.svg works too)
+	$(call require,$(call need,uv))
+	$(RUN) uv run --no-project --with matplotlib python3 scripts/history-chart.py $(TEST_HISTORY) $(COVERAGE_HISTORY) $(CHART)
+
+BADGE ?= build/test-badge.svg
+test-badge: $(DEV_DEPS) ## write a summary badge (total tests grey, failed and errored red) from the last run in TEST_HISTORY to BADGE=build/test-badge.svg
+	$(RUN) python3 scripts/test-badge.py $(TEST_HISTORY) $(BADGE)
+
+N ?= 8
+test-history-backfill: ## measure the last N=8 first-parent commits one by one in the test image (snapshots in build/backfill) and rewrite the test and coverage history CSVs with those runs
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) build -t playerctl-test .
+	CONTAINER_ENGINE=$(CONTAINER_ENGINE) bash scripts/history-backfill.sh $(N)
 
 # docker-test kept as an alias for test-container
 docker-test: test-container ## alias for test-container
@@ -356,7 +383,7 @@ contributors-duplicates: ## list contributor identities that look like the same 
 
 # Recipe steps, not prerequisites: they must run in this order (formatters and
 # generators change files before the checks look at them), also under make -j.
-precommit: ## run everything before a commit: formatters, generators, linters, manifest check, C and pytest tests (not test-asan, coverage or packaging)
+precommit: ## run everything before a commit: formatters, generators, linters, manifest check, and the tests with coverage, recorded in the test and coverage history CSVs (not test-asan or packaging)
 	$(MAKE) format
 	$(MAKE) manifests-sync
 	$(MAKE) manifests
@@ -365,7 +392,6 @@ precommit: ## run everything before a commit: formatters, generators, linters, m
 	$(MAKE) lint
 	$(MAKE) manifests-check
 	$(MAKE) contributors-check
-	$(MAKE) test-c
-	$(MAKE) test
+	$(MAKE) coverage RECORD_HISTORY=1
 
 all: format-check lint test ## check formatting, lint, then run the container tests
