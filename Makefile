@@ -383,7 +383,7 @@ contributors-duplicates: ## list contributor identities that look like the same 
 
 # Recipe steps, not prerequisites: they must run in this order (formatters and
 # generators change files before the checks look at them), also under make -j.
-pre-commit: ## run everything before a commit: formatters, generators, linters, manifest check, and the tests with coverage, recorded in the test and coverage history CSVs, then the history chart and badge in doc/ (not test-asan or packaging)
+pre-commit: ## run everything before a commit: formatters, generators, linters, manifest check, and the tests with coverage, recorded in the test and coverage history CSVs, test-asan, then the history chart and badge in doc/ (not packaging); a failing test run still gets its chart and badge, then fails the target
 	$(MAKE) format
 	$(MAKE) manifests-sync
 	$(MAKE) manifests
@@ -392,8 +392,12 @@ pre-commit: ## run everything before a commit: formatters, generators, linters, 
 	$(MAKE) lint
 	$(MAKE) manifests-check
 	$(MAKE) contributors-check
-	$(MAKE) coverage RECORD_HISTORY=1
-	$(MAKE) test-history-chart CHART=doc/test-history.png
-	$(MAKE) test-badge BADGE=doc/test-badge.svg
+	@# every test type runs before the chart and badge, which must show failures; the target fails at the end
+	rc=0; \
+	$(MAKE) coverage RECORD_HISTORY=1 || rc=1; \
+	$(MAKE) test-asan || rc=1; \
+	$(MAKE) test-history-chart CHART=doc/test-history.png || rc=1; \
+	$(MAKE) test-badge BADGE=doc/test-badge.svg || rc=1; \
+	exit $$rc
 
 all: format-check lint test ## check formatting, lint, then run the container tests

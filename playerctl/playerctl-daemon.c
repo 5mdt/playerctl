@@ -943,6 +943,7 @@ proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
     {
       g_dbus_method_invocation_return_gerror (invocation, error);
       g_error_free (error);
+      g_object_unref (invocation);
       return;
     }
   GVariant *body = g_dbus_message_get_body (reply);
@@ -954,22 +955,24 @@ proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
       break;
     case G_DBUS_MESSAGE_TYPE_ERROR:
       {
-        if (g_variant_n_children (body) > 1)
+        GVariant *error_message_variant = NULL;
+        const char *error_message = "Failed to call method";
+
+        if (body != NULL && g_variant_n_children (body) > 0)
           {
-            GVariant *error_message_variant
-                = g_variant_get_child_value (body, 1);
-            const char *error_message
-                = g_variant_get_string (error_message_variant, 0);
-            g_dbus_method_invocation_return_dbus_error (
-                invocation, g_dbus_message_get_error_name (reply),
-                error_message);
-            g_variant_unref (error_message_variant);
+            error_message_variant = g_variant_get_child_value (body, 0);
+            if (g_variant_is_of_type (error_message_variant,
+                                      G_VARIANT_TYPE_STRING))
+              {
+                error_message
+                    = g_variant_get_string (error_message_variant, NULL);
+              }
           }
-        else
+        g_dbus_method_invocation_return_dbus_error (
+            invocation, g_dbus_message_get_error_name (reply), error_message);
+        if (error_message_variant != NULL)
           {
-            g_dbus_method_invocation_return_dbus_error (
-                invocation, g_dbus_message_get_error_name (reply),
-                "Failed to call method");
+            g_variant_unref (error_message_variant);
           }
         break;
       }
@@ -977,6 +980,9 @@ proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
       g_warning (
           "got unexpected message type: %d (this is a dbus spec violation)",
           message_type);
+      g_dbus_method_invocation_return_dbus_error (
+          invocation, "org.freedesktop.DBus.Error.Failed",
+          "Unexpected reply from the player");
       break;
     }
 
