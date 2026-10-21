@@ -608,7 +608,8 @@ playerctl_player_get_property (GObject *object, guint property_id,
         metadata = playerctl_player_get_metadata (self, &error);
         if (error != NULL)
           {
-            g_error ("could not get metadata: %s", error->message);
+            // a property getter cannot return an error, and must not abort
+            g_warning ("could not get metadata: %s", error->message);
             g_clear_error (&error);
           }
         g_value_set_variant (value, metadata);
@@ -1730,6 +1731,22 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
   return prop;
 }
 
+static gchar *
+player_get_metadata_string (PlayerctlPlayer *self, const gchar *key,
+                            GError **err)
+{
+  g_return_val_if_fail (self != NULL, NULL);
+  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
+
+  if (self->priv->init_error != NULL)
+    {
+      g_propagate_error (err, g_error_copy (self->priv->init_error));
+      return NULL;
+    }
+
+  return playerctl_player_print_metadata_prop (self, key, err);
+}
+
 /**
  * playerctl_player_get_artist:
  * @self: a #PlayerctlPlayer
@@ -1743,16 +1760,7 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
 gchar *
 playerctl_player_get_artist (PlayerctlPlayer *self, GError **err)
 {
-  g_return_val_if_fail (self != NULL, NULL);
-  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
-
-  return playerctl_player_print_metadata_prop (self, "xesam:artist", NULL);
+  return player_get_metadata_string (self, "xesam:artist", err);
 }
 
 /**
@@ -1768,16 +1776,7 @@ playerctl_player_get_artist (PlayerctlPlayer *self, GError **err)
 gchar *
 playerctl_player_get_title (PlayerctlPlayer *self, GError **err)
 {
-  g_return_val_if_fail (self != NULL, NULL);
-  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
-
-  return playerctl_player_print_metadata_prop (self, "xesam:title", NULL);
+  return player_get_metadata_string (self, "xesam:title", err);
 }
 
 /**
@@ -1793,16 +1792,7 @@ playerctl_player_get_title (PlayerctlPlayer *self, GError **err)
 gchar *
 playerctl_player_get_album (PlayerctlPlayer *self, GError **err)
 {
-  g_return_val_if_fail (self != NULL, NULL);
-  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
-
-  return playerctl_player_print_metadata_prop (self, "xesam:album", NULL);
+  return player_get_metadata_string (self, "xesam:album", err);
 }
 
 /**

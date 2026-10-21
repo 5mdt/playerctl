@@ -3,6 +3,7 @@
 ## Version 2.6.0
 
 ### Bugfixes
+- Reading the `metadata` property no longer aborts the client when the metadata cannot be fetched, and `get_artist`, `get_title` and `get_album` report the error
 - `playerctld` ignores a `Position` of the wrong type instead of aborting on a GLib critical
 - The library ignores `Volume`, `Shuffle`, `LoopStatus`, `PlaybackStatus` and `Metadata` changes of the wrong type instead of emitting garbage or GLib criticals, and no longer leaks a string on every `PropertiesChanged`
 - `playerctld` no longer crashes when a player whose properties could not be read sends a signal after another player appeared
