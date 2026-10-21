@@ -16,7 +16,8 @@
 
 - `make lint` runs lizard on the C sources (`make lint-complexity`); `make complexity` writes a report and a duplicate code scan to `build/lizard`
 - `make test-asan` runs the C unit tests and the CLI and daemon pytest suites against an AddressSanitizer and UBSan build; reports in `build/asan`
-- New tests for the findings of the C code audit (out of range numbers, invalidation interfaces, late players, wrongly typed `PropertiesChanged`, leaks), failing until the bugs are fixed
+- `make test` also runs the C unit tests and prints a per-category outcome table; `make pre-commit` records the tests and the gcovr coverage in `test/test_history.csv` and `test/coverage_history.csv`, `make test-history-chart` draws them
+- New tests for the findings of the C code audit
 - `make version` copies the version from `packaging/package.yaml` to `meson.build`, `pyproject.toml`, `uv.lock` and `doc/installing.md`, and fails if `doc/CHANGELOG.md` has no section for it
 
 ## Version 2.5.0
