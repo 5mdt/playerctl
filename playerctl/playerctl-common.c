@@ -250,6 +250,16 @@ pctl_player_name_find (GList *list, gchar *player_id, PlayerctlSource source)
                              (GCompareFunc)pctl_player_name_compare);
 }
 
+/* g_list_find_custom passes (list item, search key), the reverse of the
+ * (name, instance) order of pctl_player_name_instance_compare. */
+static gint
+instance_compare_item_key (const PlayerctlPlayerName *item,
+                           const PlayerctlPlayerName *key)
+{
+  return pctl_player_name_instance_compare ((PlayerctlPlayerName *)key,
+                                            (PlayerctlPlayerName *)item);
+}
+
 GList *
 pctl_player_name_find_instance (GList *list, gchar *player_id,
                                 PlayerctlSource source)
@@ -260,7 +270,7 @@ pctl_player_name_find_instance (GList *list, gchar *player_id,
   };
 
   return g_list_find_custom (list, &player_name,
-                             (GCompareFunc)pctl_player_name_instance_compare);
+                             (GCompareFunc)instance_compare_item_key);
 }
 
 void
