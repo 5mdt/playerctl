@@ -18,25 +18,6 @@ Playerctl is a command-line utility and library for controlling media players th
 
 Playerctl also comes with a daemon that allows it to act on the currently active media player called `playerctld`.
 
-<!-- Section: fork disclaimer -->
-
-## Disclaimer
-
-> They would call this fork LLM-slop - they would be right. LLM code varies from shit to mediocre and this repo would be mediocre at best.
->
-> Playerctl is one of the pillars in Linux desktop setups, but now it's abandoned for years.
->
-> I'm forking it to keep it working and maintained. I use LLMs to help with development.
->
-> But LLM usage here has standards:
-> - **Specification compliance:** Follow existing specs and established standards first.
-> - **Portability and maintainability:** Keep the code consistent, simple, and maintainable.
-> - **KISS and DRY apply.** Every change must serve a purpose.
->
-> A maintained project that follows its specifications is better than an abandoned one.
->
-> If you hate LLMs so much that my fork would make you your own fork with no llm-code and maintain it, i would be extremely happy about it and tribute your right here.
-
 <!-- Section: quick start -->
 
 ## Quick start
@@ -48,12 +29,6 @@ playerctl play-pause
 # Print "artist - title" of the current track
 playerctl metadata --format '{{ artist }} - {{ title }}'
 ```
-
-<!-- Section: test coverage -->
-
-## Test coverage
-
-![Test history](doc/test-history.png) [![Coverage grid](https://codecov.io/gh/5mdt/playerctl/branch/develop/graphs/tree.svg)](https://codecov.io/gh/5mdt/playerctl/tree/develop)
 
 <!-- Section: documentation index -->
 
@@ -82,12 +57,39 @@ Check out the following articles about Playerctl:
 
 Other command-line MPRIS controllers:
 
-- [go-playerctl](https://github.com/arran4/go-playerctl) - reimplementation of playerctl ![language](https://img.shields.io/github/languages/top/arran4/go-playerctl) ![created](https://img.shields.io/github/created-at/arran4/go-playerctl) ![last commit](https://img.shields.io/github/last-commit/arran4/go-playerctl)
-- [mctl](https://github.com/uttarayan21/mctl-rs) - tool controlling both MPD and MPRIS players (archived) ![language](https://img.shields.io/github/languages/top/uttarayan21/mctl-rs) ![created](https://img.shields.io/github/created-at/uttarayan21/mctl-rs) ![last commit](https://img.shields.io/github/last-commit/uttarayan21/mctl-rs)
-- [mpris-control](https://github.com/BlackDex/mpris-control) - small application to control MPRIS2 players ![language](https://img.shields.io/github/languages/top/BlackDex/mpris-control) ![created](https://img.shields.io/github/created-at/BlackDex/mpris-control) ![last commit](https://img.shields.io/github/last-commit/BlackDex/mpris-control)
-- [mpris-ctl](https://github.com/mariusor/mpris-ctl) - small tool for keyboard-driven window managers, depends only on libdbus ![language](https://img.shields.io/github/languages/top/mariusor/mpris-ctl) ![created](https://img.shields.io/github/created-at/mariusor/mpris-ctl) ![last commit](https://img.shields.io/github/last-commit/mariusor/mpris-ctl)
-- [mprisctl (RangHo)](https://github.com/RangHo/mprisctl) - tool for binding media keys and feeding status bars such as Polybar ![language](https://img.shields.io/github/languages/top/RangHo/mprisctl) ![created](https://img.shields.io/github/created-at/RangHo/mprisctl) ![last commit](https://img.shields.io/github/last-commit/RangHo/mprisctl)
-- [mprisctl](https://github.com/amedoeyes/mprisctl) - client: player switching, playback, volume, track list and metadata ![language](https://img.shields.io/github/languages/top/amedoeyes/mprisctl) ![created](https://img.shields.io/github/created-at/amedoeyes/mprisctl) ![last commit](https://img.shields.io/github/last-commit/amedoeyes/mprisctl)
+| Project                                                       | Description                                                               | Language                                                                        | Created                                                                     | Last commit                                                                      |
+|---------------------------------------------------------------|---------------------------------------------------------------------------|---------------------------------------------------------------------------------|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| [go-playerctl](https://github.com/arran4/go-playerctl)        | Reimplementation of playerctl                                             | ![language](https://img.shields.io/github/languages/top/arran4/go-playerctl)    | ![created](https://img.shields.io/github/created-at/arran4/go-playerctl)    | ![last commit](https://img.shields.io/github/last-commit/arran4/go-playerctl)    |
+| [mctl](https://github.com/uttarayan21/mctl-rs)                | Controls both MPD and MPRIS players (archived)                            | ![language](https://img.shields.io/github/languages/top/uttarayan21/mctl-rs)    | ![created](https://img.shields.io/github/created-at/uttarayan21/mctl-rs)    | ![last commit](https://img.shields.io/github/last-commit/uttarayan21/mctl-rs)    |
+| [mpris-control](https://github.com/BlackDex/mpris-control)    | Small application to control MPRIS2 players                               | ![language](https://img.shields.io/github/languages/top/BlackDex/mpris-control) | ![created](https://img.shields.io/github/created-at/BlackDex/mpris-control) | ![last commit](https://img.shields.io/github/last-commit/BlackDex/mpris-control) |
+| [mpris-ctl](https://github.com/mariusor/mpris-ctl)            | Minimal tool for keyboard-driven window managers, depends only on libdbus | ![language](https://img.shields.io/github/languages/top/mariusor/mpris-ctl)     | ![created](https://img.shields.io/github/created-at/mariusor/mpris-ctl)     | ![last commit](https://img.shields.io/github/last-commit/mariusor/mpris-ctl)     |
+| [mprisctl (RangHo)](https://github.com/RangHo/mprisctl)       | Media key bindings and status bar info, e.g. Polybar                      | ![language](https://img.shields.io/github/languages/top/RangHo/mprisctl)        | ![created](https://img.shields.io/github/created-at/RangHo/mprisctl)        | ![last commit](https://img.shields.io/github/last-commit/RangHo/mprisctl)        |
+| [mprisctl (amedoeyes)](https://github.com/amedoeyes/mprisctl) | Player switching, playback, volume, track list and metadata               | ![language](https://img.shields.io/github/languages/top/amedoeyes/mprisctl)     | ![created](https://img.shields.io/github/created-at/amedoeyes/mprisctl)     | ![last commit](https://img.shields.io/github/last-commit/amedoeyes/mprisctl)     |
+
+<!-- Section: test coverage -->
+
+## Test coverage
+
+![Test history](doc/test-history.png) [![Coverage grid](https://codecov.io/gh/5mdt/playerctl/branch/develop/graphs/tree.svg)](https://codecov.io/gh/5mdt/playerctl/tree/develop)
+
+<!-- Section: fork disclaimer -->
+
+## Disclaimer
+
+> They would call this fork LLM-slop - they would be right. LLM code varies from shit to mediocre and this repo would be mediocre at best.
+>
+> Playerctl is one of the pillars in Linux desktop setups, but now it's abandoned for years.
+>
+> I'm forking it to keep it working and maintained. I use LLMs to help with development.
+>
+> But LLM usage here has standards:
+> - **Specification compliance:** Follow existing specs and established standards first.
+> - **Portability and maintainability:** Keep the code consistent, simple, and maintainable.
+> - **KISS and DRY apply.** Every change must serve a purpose.
+>
+> A maintained project that follows its specifications is better than an abandoned one.
+>
+> If you hate LLMs so much that my fork would make you your own fork with no llm-code and maintain it, i would be extremely happy about it and tribute your right here.
 
 <!-- Section: license and copyright -->
 

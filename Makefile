@@ -1,4 +1,4 @@
-.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all precommit \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all pre-commit \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -231,7 +231,7 @@ test-local: ## build with meson on the host (CONTAINER=0), then run the pytest s
 	PATH=$(BUILD_BIN):$$PATH GI_TYPELIB_PATH=$(BUILD_BIN) LD_LIBRARY_PATH=$(BUILD_BIN) dbus-run-session uv run --group gi pytest -sq
 
 # RECORD_HISTORY=1 appends the run to test/test_history.csv (make test) and also
-# to test/coverage_history.csv (make coverage); make precommit does. Each file is
+# to test/coverage_history.csv (make coverage); make pre-commit does. Each file is
 # restored from HEAD first (or removed if untracked), so a commit holds one run.
 RECORD_HISTORY ?=
 TEST_HISTORY ?= test/test_history.csv
@@ -383,7 +383,7 @@ contributors-duplicates: ## list contributor identities that look like the same 
 
 # Recipe steps, not prerequisites: they must run in this order (formatters and
 # generators change files before the checks look at them), also under make -j.
-precommit: ## run everything before a commit: formatters, generators, linters, manifest check, and the tests with coverage, recorded in the test and coverage history CSVs (not test-asan or packaging)
+pre-commit: ## run everything before a commit: formatters, generators, linters, manifest check, and the tests with coverage, recorded in the test and coverage history CSVs, then the history chart and badge in doc/ (not test-asan or packaging)
 	$(MAKE) format
 	$(MAKE) manifests-sync
 	$(MAKE) manifests
@@ -393,5 +393,7 @@ precommit: ## run everything before a commit: formatters, generators, linters, m
 	$(MAKE) manifests-check
 	$(MAKE) contributors-check
 	$(MAKE) coverage RECORD_HISTORY=1
+	$(MAKE) test-history-chart CHART=doc/test-history.png
+	$(MAKE) test-badge BADGE=doc/test-badge.svg
 
 all: format-check lint test ## check formatting, lint, then run the container tests
