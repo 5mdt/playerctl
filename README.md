@@ -76,6 +76,19 @@ Check out the following articles about Playerctl:
 - [2 new apps for music tweakers on Fedora Workstation - Fedora Magazine](https://fedoramagazine.org/2-new-apps-for-music-tweakers-on-fedora-workstation/ "2 new apps for music tweakers on Fedora Workstation")
 - [Playerctl at Version 2.0](https://dubstepdish.com/index.php/2018/10/21/playerctl-at-version-2-0/)
 
+<!-- Section: alternative projects -->
+
+## Alternatives
+
+Other command-line MPRIS controllers:
+
+- [go-playerctl](https://github.com/arran4/go-playerctl) - reimplementation of playerctl ![language](https://img.shields.io/github/languages/top/arran4/go-playerctl) ![created](https://img.shields.io/github/created-at/arran4/go-playerctl) ![last commit](https://img.shields.io/github/last-commit/arran4/go-playerctl)
+- [mctl](https://github.com/uttarayan21/mctl-rs) - tool controlling both MPD and MPRIS players (archived) ![language](https://img.shields.io/github/languages/top/uttarayan21/mctl-rs) ![created](https://img.shields.io/github/created-at/uttarayan21/mctl-rs) ![last commit](https://img.shields.io/github/last-commit/uttarayan21/mctl-rs)
+- [mpris-control](https://github.com/BlackDex/mpris-control) - small application to control MPRIS2 players ![language](https://img.shields.io/github/languages/top/BlackDex/mpris-control) ![created](https://img.shields.io/github/created-at/BlackDex/mpris-control) ![last commit](https://img.shields.io/github/last-commit/BlackDex/mpris-control)
+- [mpris-ctl](https://github.com/mariusor/mpris-ctl) - small tool for keyboard-driven window managers, depends only on libdbus ![language](https://img.shields.io/github/languages/top/mariusor/mpris-ctl) ![created](https://img.shields.io/github/created-at/mariusor/mpris-ctl) ![last commit](https://img.shields.io/github/last-commit/mariusor/mpris-ctl)
+- [mprisctl (RangHo)](https://github.com/RangHo/mprisctl) - tool for binding media keys and feeding status bars such as Polybar ![language](https://img.shields.io/github/languages/top/RangHo/mprisctl) ![created](https://img.shields.io/github/created-at/RangHo/mprisctl) ![last commit](https://img.shields.io/github/last-commit/RangHo/mprisctl)
+- [mprisctl](https://github.com/amedoeyes/mprisctl) - client: player switching, playback, volume, track list and metadata ![language](https://img.shields.io/github/languages/top/amedoeyes/mprisctl) ![created](https://img.shields.io/github/created-at/amedoeyes/mprisctl) ![last commit](https://img.shields.io/github/last-commit/amedoeyes/mprisctl)
+
 <!-- Section: license and copyright -->
 
 ## License
