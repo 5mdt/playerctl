@@ -355,7 +355,7 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
     {
       // the name has appeared
       player_entry
-          = pctl_player_name_find (manager->priv->players, player_id,
+          = pctl_player_name_find (manager->priv->player_names, player_id,
                                    pctl_bus_type_to_source (bus_type));
       if (player_entry == NULL)
         {

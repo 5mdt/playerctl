@@ -21,6 +21,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <locale.h>
+#include <math.h>
 #include <playerctl/playerctl.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -379,6 +380,39 @@ playercmd_open (PlayerctlPlayer *player, gchar **argv, gint argc,
   return TRUE;
 }
 
+/* Parses "N", "N+" or "N-". Rejects empty, non-finite and trailing garbage.
+ * A "-" suffix negates the value; any suffix sets *relative. */
+static gboolean
+parse_relative_number (const gchar *text, gdouble *value, gboolean *relative)
+{
+  char *endptr = NULL;
+  gdouble number = strtod (text, &endptr);
+
+  if (endptr == text || !isfinite (number))
+    {
+      return FALSE;
+    }
+
+  *relative = FALSE;
+  if (*endptr == '+' || *endptr == '-')
+    {
+      *relative = TRUE;
+      if (*endptr == '-')
+        {
+          number = -number;
+        }
+      endptr++;
+    }
+
+  if (*endptr != '\0')
+    {
+      return FALSE;
+    }
+
+  *value = number;
+  return TRUE;
+}
+
 static gboolean
 playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
                     gchar **output, GError **error)
@@ -398,15 +432,24 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
           return FALSE;
         }
 
-      char *endptr = NULL;
-      offset = 1000000.0 * strtod (position, &endptr);
+      gdouble seconds = 0;
+      gboolean relative = FALSE;
 
-      if (position == endptr)
+      if (!parse_relative_number (position, &seconds, &relative))
         {
           g_set_error (error, playerctl_cli_error_quark (), 1,
                        "Could not parse position as a number: %s\n", position);
           return FALSE;
         }
+
+      if (fabs (seconds) * 1000000.0 >= (gdouble)G_MAXINT64
+          || (!relative && seconds < 0))
+        {
+          g_set_error (error, playerctl_cli_error_quark (), 1,
+                       "Position out of range: %s\n", position);
+          return FALSE;
+        }
+      offset = (gint64)(seconds * 1000000.0);
 
       gboolean can_seek = FALSE;
       g_object_get (player, "can-seek", &can_seek, NULL);
@@ -415,14 +458,8 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
           return FALSE;
         }
 
-      size_t last = strlen (position) - 1;
-      if (position[last] == '+' || position[last] == '-')
+      if (relative)
         {
-          if (position[last] == '-')
-            {
-              offset *= -1;
-            }
-
           playerctl_player_seek (player, offset, &tmp_error);
           if (tmp_error != NULL)
             {
@@ -495,38 +532,23 @@ playercmd_volume (PlayerctlPlayer *player, gchar **argv, gint argc,
               "format strings are not supported on command functions.");
           return FALSE;
         }
-      char *endptr = NULL;
-      size_t last = strlen (volume) - 1;
+      gboolean relative = FALSE;
 
-      if (volume[last] == '+' || volume[last] == '-')
+      if (!parse_relative_number (volume, &level, &relative))
         {
-          gdouble adjustment = strtod (volume, &endptr);
+          g_set_error (error, playerctl_cli_error_quark (), 1,
+                       "could not parse volume as a number: %s\n", volume);
+          return FALSE;
+        }
 
-          if (volume == endptr)
-            {
-              g_set_error (error, playerctl_cli_error_quark (), 1,
-                           "could not parse volume as a number: %s\n", volume);
-              return FALSE;
-            }
-
-          if (volume[last] == '-')
-            {
-              adjustment *= -1;
-            }
-
+      if (relative)
+        {
+          gdouble adjustment = level;
           g_object_get (player, "volume", &level, NULL);
           level += adjustment;
         }
-      else
-        {
-          level = strtod (volume, &endptr);
-          if (volume == endptr)
-            {
-              g_set_error (error, playerctl_cli_error_quark (), 1,
-                           "could not parse volume as a number: %s\n", volume);
-              return FALSE;
-            }
-        }
+
+      level = CLAMP (level, 0.0, 1.0);
 
       gboolean can_control = FALSE;
       g_object_get (player, "can-control", &can_control, NULL);

@@ -184,27 +184,41 @@ metadata_get_track_id (GVariant *metadata)
   return NULL;
 }
 
+/* Looks up a changed property; a value of the wrong type is ignored. */
+static GVariant *
+lookup_property (GVariant *properties, const gchar *key,
+                 const GVariantType *type, const gchar *instance)
+{
+  GVariant *value = g_variant_lookup_value (properties, key, NULL);
+  if (value != NULL && !g_variant_is_of_type (value, type))
+    {
+      g_debug ("%s: ignoring %s of type %s", instance, key,
+               g_variant_get_type_string (value));
+      g_variant_unref (value);
+      return NULL;
+    }
+  return value;
+}
+
 static void
 playerctl_player_properties_changed_callback (
     GDBusProxy *_proxy, GVariant *changed_properties,
     const gchar *const *invalidated_properties, gpointer user_data)
 {
-  g_debug ("%s", g_variant_print (changed_properties, TRUE));
   PlayerctlPlayer *self = user_data;
   gchar *instance = self->priv->instance;
   g_debug ("%s: properties changed", instance);
 
-  // TODO probably need to replace this with an iterator
-  GVariant *metadata
-      = g_variant_lookup_value (changed_properties, "Metadata", NULL);
-  GVariant *playback_status
-      = g_variant_lookup_value (changed_properties, "PlaybackStatus", NULL);
-  GVariant *loop_status
-      = g_variant_lookup_value (changed_properties, "LoopStatus", NULL);
-  GVariant *volume
-      = g_variant_lookup_value (changed_properties, "Volume", NULL);
-  GVariant *shuffle
-      = g_variant_lookup_value (changed_properties, "Shuffle", NULL);
+  GVariant *metadata = lookup_property (changed_properties, "Metadata",
+                                        G_VARIANT_TYPE_VARDICT, instance);
+  GVariant *playback_status = lookup_property (
+      changed_properties, "PlaybackStatus", G_VARIANT_TYPE_STRING, instance);
+  GVariant *loop_status = lookup_property (changed_properties, "LoopStatus",
+                                           G_VARIANT_TYPE_STRING, instance);
+  GVariant *volume = lookup_property (changed_properties, "Volume",
+                                      G_VARIANT_TYPE_DOUBLE, instance);
+  GVariant *shuffle = lookup_property (changed_properties, "Shuffle",
+                                       G_VARIANT_TYPE_BOOLEAN, instance);
 
   if (shuffle != NULL)
     {
@@ -594,7 +608,8 @@ playerctl_player_get_property (GObject *object, guint property_id,
         metadata = playerctl_player_get_metadata (self, &error);
         if (error != NULL)
           {
-            g_error ("could not get metadata: %s", error->message);
+            // a property getter cannot return an error, and must not abort
+            g_warning ("could not get metadata: %s", error->message);
             g_clear_error (&error);
           }
         g_value_set_variant (value, metadata);
@@ -1071,8 +1086,9 @@ bus_name_for_player_name (gchar *name, GBusType bus_type, GError **err)
 {
   gchar *bus_name = NULL;
   GError *tmp_error = NULL;
+  PlayerctlSource source = pctl_bus_type_to_source (bus_type);
 
-  g_return_val_if_fail (err == NULL || *err == NULL, FALSE);
+  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
 
   GList *names = pctl_list_player_names_on_bus (bus_type, &tmp_error);
   if (tmp_error != NULL)
@@ -1081,43 +1097,34 @@ bus_name_for_player_name (gchar *name, GBusType bus_type, GError **err)
       return NULL;
     }
 
+  GList *match = NULL;
   if (names == NULL)
     {
       return NULL;
     }
-
-  if (name == NULL)
+  else if (name == NULL)
     {
       g_debug ("Getting bus name for first available player");
-      PlayerctlPlayerName *name = names->data;
-      bus_name = g_strdup_printf (MPRIS_PREFIX "%s", name->instance);
-      pctl_player_name_list_destroy (names);
-      return bus_name;
+      match = names;
     }
-
-  GList *exact_match = pctl_player_name_find (
-      names, name, pctl_bus_type_to_source (bus_type));
-  if (exact_match != NULL)
+  else if ((match = pctl_player_name_find (names, name, source)) != NULL)
     {
       g_debug ("Getting bus name for player %s by exact match", name);
-      PlayerctlPlayerName *name = exact_match->data;
-      bus_name = g_strdup_printf (MPRIS_PREFIX "%s", name->instance);
-      g_list_free_full (names, (GDestroyNotify)playerctl_player_name_free);
-      return bus_name;
     }
-
-  GList *instance_match = pctl_player_name_find_instance (
-      names, name, pctl_bus_type_to_source (bus_type));
-  if (instance_match != NULL)
+  else if ((match = pctl_player_name_find_instance (names, name, source))
+           != NULL)
     {
       g_debug ("Getting bus name for player %s by instance match", name);
-      gchar *name = instance_match->data;
-      bus_name = g_strdup_printf (MPRIS_PREFIX "%s", name);
-      pctl_player_name_list_destroy (names);
-      return bus_name;
     }
 
-  return NULL;
+  if (match != NULL)
+    {
+      PlayerctlPlayerName *match_name = match->data;
+      bus_name = g_strdup_printf (MPRIS_PREFIX "%s", match_name->instance);
+    }
+
+  pctl_player_name_list_destroy (names);
+  return bus_name;
 }
 
 static void
@@ -1716,6 +1723,22 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
   return prop;
 }
 
+static gchar *
+player_get_metadata_string (PlayerctlPlayer *self, const gchar *key,
+                            GError **err)
+{
+  g_return_val_if_fail (self != NULL, NULL);
+  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
+
+  if (self->priv->init_error != NULL)
+    {
+      g_propagate_error (err, g_error_copy (self->priv->init_error));
+      return NULL;
+    }
+
+  return playerctl_player_print_metadata_prop (self, key, err);
+}
+
 /**
  * playerctl_player_get_artist:
  * @self: a #PlayerctlPlayer
@@ -1729,16 +1752,7 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
 gchar *
 playerctl_player_get_artist (PlayerctlPlayer *self, GError **err)
 {
-  g_return_val_if_fail (self != NULL, NULL);
-  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
-
-  return playerctl_player_print_metadata_prop (self, "xesam:artist", NULL);
+  return player_get_metadata_string (self, "xesam:artist", err);
 }
 
 /**
@@ -1754,16 +1768,7 @@ playerctl_player_get_artist (PlayerctlPlayer *self, GError **err)
 gchar *
 playerctl_player_get_title (PlayerctlPlayer *self, GError **err)
 {
-  g_return_val_if_fail (self != NULL, NULL);
-  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
-
-  return playerctl_player_print_metadata_prop (self, "xesam:title", NULL);
+  return player_get_metadata_string (self, "xesam:title", err);
 }
 
 /**
@@ -1779,16 +1784,7 @@ playerctl_player_get_title (PlayerctlPlayer *self, GError **err)
 gchar *
 playerctl_player_get_album (PlayerctlPlayer *self, GError **err)
 {
-  g_return_val_if_fail (self != NULL, NULL);
-  g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
-
-  return playerctl_player_print_metadata_prop (self, "xesam:album", NULL);
+  return player_get_metadata_string (self, "xesam:album", err);
 }
 
 /**

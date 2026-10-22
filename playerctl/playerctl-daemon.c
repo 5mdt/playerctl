@@ -235,7 +235,15 @@ player_update_properties (struct Player *player, const char *interface_name,
       if (interface == PLAYER && g_strcmp0 (key, "Position") == 0)
         {
           // gets cached separately (never counts as changed)
-          player->position = g_variant_get_int64 (prop_value);
+          if (g_variant_is_of_type (prop_value, G_VARIANT_TYPE_INT64))
+            {
+              player->position = g_variant_get_int64 (prop_value);
+            }
+          else
+            {
+              g_debug ("%s: ignoring Position of type %s", player->well_known,
+                       g_variant_get_type_string (prop_value));
+            }
           goto loop_out;
         }
       GVariant *cache_value
@@ -324,8 +332,17 @@ player_update_position_sync (struct Player *player,
     }
   GVariant *position_unwrapped = g_variant_get_child_value (reply, 0);
   GVariant *position_variant = g_variant_get_variant (position_unwrapped);
-  player->position = g_variant_get_int64 (position_variant);
-  g_debug ("new position: %ld", player->position);
+  if (g_variant_is_of_type (position_variant, G_VARIANT_TYPE_INT64))
+    {
+      player->position = g_variant_get_int64 (position_variant);
+      g_debug ("new position: %ld", player->position);
+    }
+  else
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                   "Position has type %s, expected x",
+                   g_variant_get_type_string (position_variant));
+    }
   g_variant_unref (position_variant);
   g_variant_unref (position_unwrapped);
   g_variant_unref (reply);
@@ -374,7 +391,14 @@ context_emit_active_player_changed (struct PlayerctldContext *ctx,
         }
     }
 
-  if (player != NULL)
+  if (player != NULL
+      && (player->player_properties == NULL
+          || player->root_properties == NULL))
+    {
+      g_warning ("active player '%s' has no properties, not announcing it",
+                 player->well_known);
+    }
+  else if (player != NULL)
     {
       g_debug ("emitting signals for new active player: '%s'",
                player->well_known);
@@ -943,6 +967,7 @@ proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
     {
       g_dbus_method_invocation_return_gerror (invocation, error);
       g_error_free (error);
+      g_object_unref (invocation);
       return;
     }
   GVariant *body = g_dbus_message_get_body (reply);
@@ -954,22 +979,24 @@ proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
       break;
     case G_DBUS_MESSAGE_TYPE_ERROR:
       {
-        if (g_variant_n_children (body) > 1)
+        GVariant *error_message_variant = NULL;
+        const char *error_message = "Failed to call method";
+
+        if (body != NULL && g_variant_n_children (body) > 0)
           {
-            GVariant *error_message_variant
-                = g_variant_get_child_value (body, 1);
-            const char *error_message
-                = g_variant_get_string (error_message_variant, 0);
-            g_dbus_method_invocation_return_dbus_error (
-                invocation, g_dbus_message_get_error_name (reply),
-                error_message);
-            g_variant_unref (error_message_variant);
+            error_message_variant = g_variant_get_child_value (body, 0);
+            if (g_variant_is_of_type (error_message_variant,
+                                      G_VARIANT_TYPE_STRING))
+              {
+                error_message
+                    = g_variant_get_string (error_message_variant, NULL);
+              }
           }
-        else
+        g_dbus_method_invocation_return_dbus_error (
+            invocation, g_dbus_message_get_error_name (reply), error_message);
+        if (error_message_variant != NULL)
           {
-            g_dbus_method_invocation_return_dbus_error (
-                invocation, g_dbus_message_get_error_name (reply),
-                "Failed to call method");
+            g_variant_unref (error_message_variant);
           }
         break;
       }
@@ -977,6 +1004,9 @@ proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
       g_warning (
           "got unexpected message type: %d (this is a dbus spec violation)",
           message_type);
+      g_dbus_method_invocation_return_dbus_error (
+          invocation, "org.freedesktop.DBus.Error.Failed",
+          "Unexpected reply from the player");
       break;
     }
 
@@ -1506,8 +1536,10 @@ player_signal_proxy_callback (GDBusConnection *connection,
            "signal_name=%s",
            sender_name, object_path, interface_name, signal_name);
 
-  if (player == ctx->pending_active)
+  if (g_queue_find (ctx->pending_players, player) != NULL)
     {
+      // not usable until both property replies arrived (also covers a player
+      // whose reply failed and that is no longer pending_active)
       // TODO buffer seeked signals
       return;
     }

@@ -3,6 +3,13 @@
 ## Version 2.6.0
 
 ### Bugfixes
+- `Player.new()` finds a player that only runs as an instance (`vlc.instance123`) by its base name, and no longer leaks the list of names or reads a wrong bus name; the manager looks up appearing names in its list of names
+- Reading the `metadata` property no longer aborts the client when the metadata cannot be fetched, and `get_artist`, `get_title` and `get_album` report the error
+- `playerctld` ignores a `Position` of the wrong type instead of aborting on a GLib critical
+- The library ignores `Volume`, `Shuffle`, `LoopStatus`, `PlaybackStatus` and `Metadata` changes of the wrong type instead of emitting garbage or GLib criticals, and no longer leaks a string on every `PropertiesChanged`
+- `playerctld` no longer crashes when a player whose properties could not be read sends a signal after another player appeared
+- `position` and `volume` reject empty, non-finite, out-of-range and trailing-garbage arguments, `volume` is clamped to 0.0-1.0, and `volume ''` no longer reads out of bounds
+- `playerctld` no longer crashes on a player error without a body, and forwards the player's error message
 - `play`, `pause`, `play-pause`, `stop`, `next`, `previous` and `open` no longer wait for the player to answer `Properties.GetAll`, so they reach slow players such as spotifyd at once (#10)
 - `position` no longer crashes when a player reports a `mpris:trackid` that is not a valid object path, such as Totem (#33)
 - `playerctld` no longer aborts on an unexpected `PropertiesChanged`, which crashed it when Rhythmbox started playing (#24)
