@@ -18,6 +18,8 @@
 - `position` no longer crashes when a player reports a `mpris:trackid` that is not a valid object path, such as Totem (#33)
 - `playerctld` no longer aborts on an unexpected `PropertiesChanged`, which crashed it when Rhythmbox started playing (#24)
 - No abort on a malformed reply to `Properties.Get`, which crashed `metadata --follow` with Harmonoid (#44)
+- `-p mpv` selects `mpv` before `mpv.instance123` when both run and the daemon lists the instance first, and `-p name.instance1,name` ranks the instance by its full instance name while following
+- Library: `PlayerctlPlayerManager` removes the player of the bus whose name vanished, not the same name on the other bus (`player-vanished` and `name-vanished` no longer disagree)
 
 ### Features
 

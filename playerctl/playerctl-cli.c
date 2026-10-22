@@ -1369,82 +1369,39 @@ player_vanished_callback (PlayerctlPlayerManager *manager,
     }
 }
 
+/* Rank of a player in the -p list; lower sorts first. A player not in the
+ * list ranks at the first %any (last when there is none). */
+static gint
+player_name_rank (const GList *names, const gchar *player)
+{
+  gint rank = INT_MAX;
+  gint any_rank = INT_MAX;
+  gint i = 0;
+
+  for (; names != NULL; names = names->next, i++)
+    {
+      const gchar *name = names->data;
+      if (g_strcmp0 (name, "%any") == 0)
+        {
+          any_rank = MIN (any_rank, i);
+        }
+      else if (pctl_player_name_string_instance_compare (name, player) == 0)
+        {
+          rank = MIN (rank, i);
+        }
+    }
+
+  return rank == INT_MAX ? any_rank : rank;
+}
+
 gint
 player_name_string_compare_func (gconstpointer a, gconstpointer b,
                                  gpointer user_data)
 {
-  const gchar *name_a = a;
-  const gchar *name_b = b;
-  GList *names = user_data;
+  gint rank_a = player_name_rank (user_data, a);
+  gint rank_b = player_name_rank (user_data, b);
 
-  if (g_strcmp0 (name_a, name_b) == 0)
-    {
-      return 0;
-    }
-
-  int a_match_index = -1;
-  int b_match_index = -1;
-
-  int any_index = INT_MAX;
-  int i = 0;
-  GList *l = NULL;
-  for (l = names; l != NULL; l = l->next)
-    {
-      gchar *name = l->data;
-
-      if (g_strcmp0 (name, "%any") == 0)
-        {
-          if (any_index == INT_MAX)
-            {
-              any_index = i;
-            }
-          ++i;
-          continue;
-        }
-
-      if (pctl_player_name_string_instance_compare (name, name_a) == 0)
-        {
-          if (a_match_index == -1)
-            {
-              a_match_index = i;
-            }
-        }
-
-      if (pctl_player_name_string_instance_compare (name, name_b) == 0)
-        {
-          if (b_match_index == -1)
-            {
-              b_match_index = i;
-            }
-        }
-      ++i;
-    }
-
-  if (a_match_index == -1 && b_match_index == -1)
-    {
-      // neither are in the list
-      return 0;
-    }
-
-  if (a_match_index == -1)
-    {
-      // b is in the list
-      return (b_match_index < any_index ? 1 : -1);
-    }
-
-  if (b_match_index == -1)
-    {
-      // a is in the list
-      return (a_match_index < any_index ? -1 : 1);
-    }
-
-  if (a_match_index == b_match_index)
-    {
-      // preserve order
-      return 0;
-    }
-
-  return (a_match_index < b_match_index ? -1 : 1);
+  return (rank_a > rank_b) - (rank_a < rank_b);
 }
 
 gint
@@ -1456,6 +1413,28 @@ player_name_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
                                           user_data);
 }
 
+/* Like player_name_compare_func, but at the same rank a name listed exactly
+ * (-p mpv) beats its instances, so a command picks it first. */
+static gint
+player_name_exact_first_compare_func (gconstpointer a, gconstpointer b,
+                                      gpointer user_data)
+{
+  const PlayerctlPlayerName *name_a = a;
+  const PlayerctlPlayerName *name_b = b;
+  gint result = player_name_compare_func (a, b, user_data);
+  if (result != 0)
+    {
+      return result;
+    }
+
+  GCompareFunc equal = (GCompareFunc)g_strcmp0;
+  gboolean exact_a
+      = g_list_find_custom (user_data, name_a->instance, equal) != NULL;
+  gboolean exact_b
+      = g_list_find_custom (user_data, name_b->instance, equal) != NULL;
+  return exact_b - exact_a;
+}
+
 gint
 player_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
 {
@@ -1463,8 +1442,8 @@ player_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
   PlayerctlPlayer *player_b = PLAYERCTL_PLAYER (b);
   gchar *name_a = NULL;
   gchar *name_b = NULL;
-  g_object_get (player_a, "player-name", &name_a, NULL);
-  g_object_get (player_b, "player-name", &name_b, NULL);
+  g_object_get (player_a, "player-instance", &name_a, NULL);
+  g_object_get (player_b, "player-instance", &name_b, NULL);
   gint result = player_name_string_compare_func (name_a, name_b, user_data);
   g_free (name_a);
   g_free (name_b);
@@ -1545,7 +1524,8 @@ main (int argc, char *argv[])
   g_object_get (manager, "player-names", &available_players, NULL);
   available_players = g_list_copy (available_players);
   available_players = g_list_sort_with_data (
-      available_players, player_name_compare_func, (gpointer)player_names);
+      available_players, player_name_exact_first_compare_func,
+      (gpointer)player_names);
 
   PlayerctlPlayerName playerctld_name = {
     .instance = "playerctld",
@@ -1567,7 +1547,8 @@ main (int argc, char *argv[])
           available_players,
           pctl_player_name_new ("playerctld", PLAYERCTL_SOURCE_DBUS_SESSION));
       available_players = g_list_sort_with_data (
-          available_players, player_name_compare_func, (gpointer)player_names);
+          available_players, player_name_exact_first_compare_func,
+          (gpointer)player_names);
     }
 
   gboolean has_selected = FALSE;
