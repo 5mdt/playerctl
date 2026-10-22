@@ -137,7 +137,8 @@ player.
 If one or more
 .Ar KEY
 are specified only the values of those keys
-are printed.
+are printed, one per line in the order given; a key the player does not
+have prints nothing.
 .It Cm open Ar URI
 Open
 .Ar URI

@@ -47,8 +47,8 @@ static void test_print_string_array(void) {
 }
 
 static void test_print_object_path(void) {
-    /* 'o' is not 's', so it goes through g_variant_print (quoted) */
-    ASSERT_PRINTS(g_variant_new_object_path("/org/mpris/Track/1"), "'/org/mpris/Track/1'");
+    /* an object path prints as plain text, like a string */
+    ASSERT_PRINTS(g_variant_new_object_path("/org/mpris/Track/1"), "/org/mpris/Track/1");
 }
 
 static void test_print_numbers(void) {
@@ -171,11 +171,32 @@ static void test_name_new(void) {
     g_assert_cmpstr(n->instance, ==, "mpd");
     playerctl_player_name_free(n);
 
-    /* only the first dot splits */
+    /* only a trailing .instanceN is an instance suffix */
     n = pctl_player_name_new("a.b.c", PLAYERCTL_SOURCE_DBUS_SESSION);
-    g_assert_cmpstr(n->name, ==, "a");
+    g_assert_cmpstr(n->name, ==, "a.b.c");
     g_assert_cmpstr(n->instance, ==, "a.b.c");
     playerctl_player_name_free(n);
+
+    n = pctl_player_name_new("x.instance5", PLAYERCTL_SOURCE_DBUS_SESSION);
+    g_assert_cmpstr(n->name, ==, "x");
+    playerctl_player_name_free(n);
+}
+
+static void test_player_base_name(void) {
+    const gchar *cases[][2] = {
+        {"x", "x"},
+        {"x.instance5", "x"},
+        {"x.instance", "x.instance"},
+        {"x.instance5a", "x.instance5a"},
+        {".instance5", ".instance5"},
+        {"a.instance1.instance2", "a.instance1"},
+        {"io.bassi.Amberol", "io.bassi.Amberol"},
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(cases); i++) {
+        gchar *base = pctl_player_base_name(cases[i][0]);
+        g_assert_cmpstr(base, ==, cases[i][1]);
+        g_free(base);
+    }
 }
 
 static void test_name_compare(void) {
@@ -336,6 +357,8 @@ int main(int argc, char **argv) {
     g_test_add_data_func("/common/bus/bus-type-to-source", (gconstpointer)test_bus_type_to_source,
                          run_isolated);
     g_test_add_data_func("/common/name/new", (gconstpointer)test_name_new, run_isolated);
+    g_test_add_data_func("/common/name/base-name", (gconstpointer)test_player_base_name,
+                         run_isolated);
     g_test_add_data_func("/common/name/compare", (gconstpointer)test_name_compare, run_isolated);
     g_test_add_data_func("/common/name/string-instance-compare",
                          (gconstpointer)test_string_instance_compare, run_isolated);

@@ -48,6 +48,8 @@ GBusType pctl_source_to_bus_type (PlayerctlSource source);
 
 PlayerctlSource pctl_bus_type_to_source (GBusType bus_type);
 
+gchar *pctl_player_base_name (const gchar *instance);
+
 PlayerctlPlayerName *pctl_player_name_new (const gchar *instance,
                                            PlayerctlSource source);
 

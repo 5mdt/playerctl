@@ -114,3 +114,20 @@ async def test_keys_come_from_one_player(playerctl, mpris_factory):
     assert title.returncode == 0, title.stderr
     assert title.stdout == 'TitleA'
     assert artist.stdout != 'ArtistB'
+
+
+async def test_multiple_keys_of_a_player_without_metadata(
+    playerctl, mpris_factory
+):
+    [mpris] = await mpris_factory('meta')
+    mpris.metadata = {}
+
+    cmd = await playerctl.run('-p meta metadata title album')
+
+    assert cmd.stdout == ''
+
+
+async def test_multiple_missing_keys_print_nothing(playerctl, meta_player):
+    cmd = await playerctl.run('-p meta metadata xesam:one xesam:two')
+
+    assert cmd.stdout == ''

@@ -1229,10 +1229,8 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
 
   /* org.mpris.MediaPlayer2.{NAME}[.{INSTANCE}] */
   int offset = strlen (MPRIS_PREFIX);
-  gchar **split = g_strsplit (bus_name + offset, ".", 2);
   g_free (player->priv->player_name);
-  player->priv->player_name = g_strdup (split[0]);
-  g_strfreev (split);
+  player->priv->player_name = pctl_player_base_name (bus_name + offset);
 
   player->priv->proxy = org_mpris_media_player2_player_proxy_new_for_bus_sync (
       pctl_source_to_bus_type (player->priv->source),

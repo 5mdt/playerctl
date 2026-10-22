@@ -139,23 +139,30 @@ playercmd_args_destroy (struct playercmd_args *data)
   free (data);
 }
 
+/* The metadata of the player, or NULL when it has none. */
+static GVariant *
+get_nonempty_metadata (PlayerctlPlayer *player)
+{
+  GVariant *metadata = NULL;
+  g_object_get (player, "metadata", &metadata, NULL);
+  if (metadata != NULL && g_variant_n_children (metadata) == 0)
+    {
+      g_variant_unref (metadata);
+      return NULL;
+    }
+  return metadata;
+}
+
 static gchar *
 get_metadata_formatted (PlayerctlPlayer *player, GError **error)
 {
   GError *tmp_error = NULL;
-  GVariant *metadata = NULL;
 
   g_return_val_if_fail (formatter != NULL, NULL);
 
-  g_object_get (player, "metadata", &metadata, NULL);
+  GVariant *metadata = get_nonempty_metadata (player);
   if (metadata == NULL)
     {
-      return NULL;
-    }
-
-  if (g_variant_n_children (metadata) == 0)
-    {
-      g_variant_unref (metadata);
       return NULL;
     }
 
@@ -800,6 +807,41 @@ playercmd_loop (PlayerctlPlayer *player, gchar **argv, gint argc,
   return TRUE;
 }
 
+/* The first player with metadata answers for all the keys; a key it lacks
+ * prints nothing rather than coming from another player. */
+static gboolean
+metadata_keys_output (PlayerctlPlayer *player, gchar **argv, gint argc,
+                      gchar **output)
+{
+  GVariant *metadata = get_nonempty_metadata (player);
+  if (metadata == NULL)
+    {
+      return FALSE;
+    }
+
+  const gchar *shortcuts[] = { "artist", "title", "album", NULL };
+  GString *lines = g_string_new (NULL);
+  for (int i = 1; i < argc; ++i)
+    {
+      gchar *key = g_strv_contains (shortcuts, argv[i])
+                       ? g_strconcat ("xesam:", argv[i], NULL)
+                       : g_strdup (argv[i]);
+      GVariant *value = g_variant_lookup_value (metadata, key, NULL);
+      if (value != NULL)
+        {
+          gchar *printed = pctl_print_gvariant (value);
+          g_string_append_printf (lines, "%s\n", printed);
+          g_free (printed);
+          g_variant_unref (value);
+        }
+      g_free (key);
+    }
+
+  g_variant_unref (metadata);
+  *output = g_string_free (lines, lines->len == 0);
+  return TRUE;
+}
+
 static gboolean
 playercmd_metadata (PlayerctlPlayer *player, gchar **argv, gint argc,
                     gchar **output, GError **error)
@@ -862,45 +904,7 @@ playercmd_metadata (PlayerctlPlayer *player, gchar **argv, gint argc,
     }
   else
     {
-      for (int i = 1; i < argc; ++i)
-        {
-          const gchar *type = argv[i];
-          gchar *data;
-
-          if (g_strcmp0 (type, "artist") == 0)
-            {
-              data = playerctl_player_get_artist (player, &tmp_error);
-            }
-          else if (g_strcmp0 (type, "title") == 0)
-            {
-              data = playerctl_player_get_title (player, &tmp_error);
-            }
-          else if (g_strcmp0 (type, "album") == 0)
-            {
-              data = playerctl_player_get_album (player, &tmp_error);
-            }
-          else
-            {
-              data = playerctl_player_print_metadata_prop (player, type,
-                                                           &tmp_error);
-            }
-
-          if (tmp_error)
-            {
-              g_propagate_error (error, tmp_error);
-              return FALSE;
-            }
-
-          if (data != NULL)
-            {
-              *output = g_strdup_printf ("%s\n", data);
-              g_free (data);
-            }
-          else
-            {
-              return FALSE;
-            }
-        }
+      return metadata_keys_output (player, argv, argc, output);
     }
 
   return TRUE;

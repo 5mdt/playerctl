@@ -607,13 +607,14 @@ static void test_duration(void) {
     assert_string_result(CALL(helperfn_duration, NULL, &err, V_i64(3725000000)), "1:02:05");
     assert_string_result(CALL(helperfn_duration, NULL, &err, V_u64(61000000)), "1:01");
     assert_string_result(CALL(helperfn_duration, NULL, &err, V_d(59000000.0)), "0:59");
+    assert_string_result(CALL(helperfn_duration, NULL, &err, V_s("125000000")), "2:05");
     assert_string_result(CALL(helperfn_duration, NULL, &err, (GVariant *)NULL), "");
     g_assert_no_error(err);
 }
 
 static void test_duration_errors(void) {
     GError *err = NULL;
-    GVariant *r = CALL(helperfn_duration, NULL, &err, V_s("12"));
+    GVariant *r = CALL(helperfn_duration, NULL, &err, V_s("abc"));
     assert_fails(r, err, "function duration can only be called on track position values");
     err = NULL;
     r = CALL(helperfn_duration, NULL, &err, g_variant_new_boolean(TRUE));
