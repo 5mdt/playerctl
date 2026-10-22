@@ -424,14 +424,6 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
 
   if (position)
     {
-      if (format_string_arg != NULL)
-        {
-          g_set_error (
-              error, playerctl_cli_error_quark (), 1,
-              "format strings are not supported on command functions.");
-          return FALSE;
-        }
-
       gdouble seconds = 0;
       gboolean relative = FALSE;
 
@@ -525,13 +517,6 @@ playercmd_volume (PlayerctlPlayer *player, gchar **argv, gint argc,
 
   if (volume)
     {
-      if (format_string_arg != NULL)
-        {
-          g_set_error (
-              error, playerctl_cli_error_quark (), 1,
-              "format strings are not supported on command functions.");
-          return FALSE;
-        }
       gboolean relative = FALSE;
 
       if (!parse_relative_number (volume, &level, &relative))
@@ -956,26 +941,28 @@ struct player_command
   // does not need to load all of its properties first (a slow player would
   // delay the command)
   gboolean lazy;
+  // extra arguments set a value, which can not be formatted or followed
+  gboolean setter_with_args;
 } player_commands[] = {
-  { "open", &playercmd_open, NULL, FALSE, TRUE },
-  { "play", &playercmd_play, NULL, FALSE, TRUE },
-  { "pause", &playercmd_pause, NULL, FALSE, TRUE },
-  { "play-pause", &playercmd_play_pause, NULL, FALSE, TRUE },
-  { "stop", &playercmd_stop, NULL, FALSE, TRUE },
-  { "next", &playercmd_next, NULL, FALSE, TRUE },
-  { "previous", &playercmd_previous, NULL, FALSE, TRUE },
-  { "position", &playercmd_position, "seeked", TRUE, FALSE },
-  { "volume", &playercmd_volume, "volume", TRUE, FALSE },
-  { "status", &playercmd_status, "playback-status", TRUE, FALSE },
-  { "loop", &playercmd_loop, "loop-status", TRUE, FALSE },
-  { "shuffle", &playercmd_shuffle, "shuffle", TRUE, FALSE },
-  { "metadata", &playercmd_metadata, "metadata", TRUE, FALSE },
+  { "open", &playercmd_open, NULL, FALSE, TRUE, FALSE },
+  { "play", &playercmd_play, NULL, FALSE, TRUE, FALSE },
+  { "pause", &playercmd_pause, NULL, FALSE, TRUE, FALSE },
+  { "play-pause", &playercmd_play_pause, NULL, FALSE, TRUE, FALSE },
+  { "stop", &playercmd_stop, NULL, FALSE, TRUE, FALSE },
+  { "next", &playercmd_next, NULL, FALSE, TRUE, FALSE },
+  { "previous", &playercmd_previous, NULL, FALSE, TRUE, FALSE },
+  { "position", &playercmd_position, "seeked", TRUE, FALSE, TRUE },
+  { "volume", &playercmd_volume, "volume", TRUE, FALSE, TRUE },
+  { "status", &playercmd_status, "playback-status", TRUE, FALSE, FALSE },
+  { "loop", &playercmd_loop, "loop-status", TRUE, FALSE, TRUE },
+  { "shuffle", &playercmd_shuffle, "shuffle", TRUE, FALSE, TRUE },
+  { "metadata", &playercmd_metadata, "metadata", TRUE, FALSE, FALSE },
 };
 
 static const struct player_command *
 get_player_command (gchar **argv, gint argc, GError **error)
 {
-  if (argv == NULL || argc < 1)
+  if (argc < 1)
     {
       g_set_error (error, playerctl_cli_error_quark (), 1, "No command given");
       return NULL;
@@ -986,7 +973,10 @@ get_player_command (gchar **argv, gint argc, GError **error)
       const struct player_command command = player_commands[i];
       if (g_strcmp0 (command.name, argv[0]) == 0)
         {
-          if (format_string_arg != NULL && !command.supports_format)
+          gboolean setter = command.setter_with_args && argc > 1;
+
+          if (format_string_arg != NULL
+              && (!command.supports_format || setter))
             {
               g_set_error (error, playerctl_cli_error_quark (), 1,
                            "format strings are not supported on command: %s",
@@ -994,7 +984,7 @@ get_player_command (gchar **argv, gint argc, GError **error)
               return NULL;
             }
 
-          if (follow && (command.follow_signal == NULL))
+          if (follow && (command.follow_signal == NULL || setter))
             {
               g_set_error (error, playerctl_cli_error_quark (), 1,
                            "follow is not supported on command: %s", argv[0]);
@@ -1492,7 +1482,7 @@ main (int argc, char *argv[])
     {
       g_printerr ("%s\n", error->message);
       g_clear_error (&error);
-      exit (0);
+      exit (1);
     }
 
   player_names = parse_player_list (player_arg);

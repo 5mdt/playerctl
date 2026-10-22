@@ -3,6 +3,7 @@
 ## Version 2.6.0
 
 ### Bugfixes
+- `--format` and `--follow` are rejected on `position`, `volume`, `loop` and `shuffle` with an argument, and an unknown option or an option without its value exits with 1 instead of 0
 - `Player.new()` finds a player that only runs as an instance (`vlc.instance123`) by its base name, and no longer leaks the list of names or reads a wrong bus name; the manager looks up appearing names in its list of names
 - Reading the `metadata` property no longer aborts the client when the metadata cannot be fetched, and `get_artist`, `get_title` and `get_album` report the error
 - `playerctld` ignores a `Position` of the wrong type instead of aborting on a GLib critical
