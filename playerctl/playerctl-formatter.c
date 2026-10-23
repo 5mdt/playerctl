@@ -653,6 +653,13 @@ helperfn_duration (struct token *token, GVariant **args, int nargs,
         }
       duration = double_duration;
     }
+  else if (g_variant_type_equal (g_variant_get_type (value),
+                                 G_VARIANT_TYPE_STRING)
+           && g_ascii_string_to_signed (g_variant_get_string (value, NULL), 10,
+                                        0, G_MAXINT64, &duration, NULL))
+    {
+      // XXX: some players send mpris:length as a numeric string
+    }
   else
     {
       g_set_error (
@@ -737,11 +744,18 @@ helperfn_default (struct token *token, GVariant **args, int nargs,
       return args[1];
     }
 
+  // a string or list of strings that prints as nothing counts as empty
   if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_STRING)
-      && strlen (g_variant_get_string (args[0], NULL)) == 0)
+      || g_variant_is_of_type (args[0], G_VARIANT_TYPE_STRING_ARRAY))
     {
-      g_variant_ref (args[1]);
-      return args[1];
+      gchar *printed = pctl_print_gvariant (args[0]);
+      gboolean is_empty = printed[0] == '\0';
+      g_free (printed);
+      if (is_empty)
+        {
+          g_variant_ref (args[1]);
+          return args[1];
+        }
     }
   g_variant_ref (args[0]);
   return args[0];

@@ -265,8 +265,9 @@ manager_remove_managed_player_by_name (PlayerctlPlayerManager *manager,
     {
       PlayerctlPlayer *player = PLAYERCTL_PLAYER (l->data);
       gchar *instance = pctl_player_get_instance (player);
-      // TODO match bus type
-      if (g_strcmp0 (instance, player_name->instance) == 0)
+      PlayerctlPlayerName managed = { .instance = instance };
+      g_object_get (player, "source", &managed.source, NULL);
+      if (pctl_player_name_compare (&managed, player_name) == 0)
         {
           manager->priv->players
               = g_list_remove_link (manager->priv->players, l);

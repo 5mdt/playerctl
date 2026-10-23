@@ -58,7 +58,7 @@ async def test_metadata_missing_from_the_cache_is_fetched_directly(
     assert result.stdout.splitlines() == [
         'title',
         'artist title',
-        "'/track/1'",
+        '/track/1',  # object paths print without GVariant quoting
     ]
     assert mpris.set_position_called_with == ('/track/1', 5)
 

@@ -197,7 +197,8 @@ async def test_set_position_without_track_id_fails(gi_run, mpris_factory):
 
 
 async def test_gobject_properties(gi_run, mpris_factory):
-    [mpris] = await mpris_factory('lib.inst')
+    # only a trailing `.instanceN` is an instance suffix, so use a real one
+    [mpris] = await mpris_factory('lib.instance1')
     mpris.can_control = False
     mpris.can_go_next = False
     mpris.can_go_previous = False
@@ -206,7 +207,7 @@ async def test_gobject_properties(gi_run, mpris_factory):
     mpris.metadata = {'xesam:title': Variant('s', 'T')}
 
     result = await gi_run("""
-        player = Playerctl.Player.new('lib.inst')
+        player = Playerctl.Player.new('lib.instance1')
         props = player.props
         out(props.player_name)
         out(props.source.value_nick)

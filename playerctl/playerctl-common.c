@@ -22,6 +22,7 @@
 #include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <strings.h>
 
 #define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
@@ -137,7 +138,8 @@ pctl_print_gvariant (GVariant *value)
 
       g_free (prop_strv);
     }
-  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING))
+  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING)
+           || g_variant_is_of_type (value, G_VARIANT_TYPE_OBJECT_PATH))
     {
       g_string_append (printed, g_variant_get_string (value, NULL));
     }
@@ -178,14 +180,25 @@ pctl_bus_type_to_source (GBusType bus_type)
     }
 }
 
+/* Strips a trailing ".instanceN" (N digits), the only instance suffix. */
+gchar *
+pctl_player_base_name (const gchar *instance)
+{
+  const gchar *suffix = g_strrstr (instance, ".instance");
+  if (suffix != NULL && suffix != instance && suffix[9] != '\0'
+      && suffix[9 + strspn (suffix + 9, "0123456789")] == '\0')
+    {
+      return g_strndup (instance, suffix - instance);
+    }
+  return g_strdup (instance);
+}
+
 PlayerctlPlayerName *
 pctl_player_name_new (const gchar *instance, PlayerctlSource source)
 {
   // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new macro expansion
   PlayerctlPlayerName *player_name = g_slice_new (PlayerctlPlayerName);
-  gchar **split = g_strsplit (instance, ".", 2);
-  player_name->name = g_strdup (split[0]);
-  g_strfreev (split);
+  player_name->name = pctl_player_base_name (instance);
   player_name->instance = g_strdup (instance);
   player_name->source = source;
   return player_name;

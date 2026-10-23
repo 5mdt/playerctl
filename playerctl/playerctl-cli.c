@@ -139,23 +139,30 @@ playercmd_args_destroy (struct playercmd_args *data)
   free (data);
 }
 
+/* The metadata of the player, or NULL when it has none. */
+static GVariant *
+get_nonempty_metadata (PlayerctlPlayer *player)
+{
+  GVariant *metadata = NULL;
+  g_object_get (player, "metadata", &metadata, NULL);
+  if (metadata != NULL && g_variant_n_children (metadata) == 0)
+    {
+      g_variant_unref (metadata);
+      return NULL;
+    }
+  return metadata;
+}
+
 static gchar *
 get_metadata_formatted (PlayerctlPlayer *player, GError **error)
 {
   GError *tmp_error = NULL;
-  GVariant *metadata = NULL;
 
   g_return_val_if_fail (formatter != NULL, NULL);
 
-  g_object_get (player, "metadata", &metadata, NULL);
+  GVariant *metadata = get_nonempty_metadata (player);
   if (metadata == NULL)
     {
-      return NULL;
-    }
-
-  if (g_variant_n_children (metadata) == 0)
-    {
-      g_variant_unref (metadata);
       return NULL;
     }
 
@@ -424,14 +431,6 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
 
   if (position)
     {
-      if (format_string_arg != NULL)
-        {
-          g_set_error (
-              error, playerctl_cli_error_quark (), 1,
-              "format strings are not supported on command functions.");
-          return FALSE;
-        }
-
       gdouble seconds = 0;
       gboolean relative = FALSE;
 
@@ -525,13 +524,6 @@ playercmd_volume (PlayerctlPlayer *player, gchar **argv, gint argc,
 
   if (volume)
     {
-      if (format_string_arg != NULL)
-        {
-          g_set_error (
-              error, playerctl_cli_error_quark (), 1,
-              "format strings are not supported on command functions.");
-          return FALSE;
-        }
       gboolean relative = FALSE;
 
       if (!parse_relative_number (volume, &level, &relative))
@@ -815,6 +807,41 @@ playercmd_loop (PlayerctlPlayer *player, gchar **argv, gint argc,
   return TRUE;
 }
 
+/* The first player with metadata answers for all the keys; a key it lacks
+ * prints nothing rather than coming from another player. */
+static gboolean
+metadata_keys_output (PlayerctlPlayer *player, gchar **argv, gint argc,
+                      gchar **output)
+{
+  GVariant *metadata = get_nonempty_metadata (player);
+  if (metadata == NULL)
+    {
+      return FALSE;
+    }
+
+  const gchar *shortcuts[] = { "artist", "title", "album", NULL };
+  GString *lines = g_string_new (NULL);
+  for (int i = 1; i < argc; ++i)
+    {
+      gchar *key = g_strv_contains (shortcuts, argv[i])
+                       ? g_strconcat ("xesam:", argv[i], NULL)
+                       : g_strdup (argv[i]);
+      GVariant *value = g_variant_lookup_value (metadata, key, NULL);
+      if (value != NULL)
+        {
+          gchar *printed = pctl_print_gvariant (value);
+          g_string_append_printf (lines, "%s\n", printed);
+          g_free (printed);
+          g_variant_unref (value);
+        }
+      g_free (key);
+    }
+
+  g_variant_unref (metadata);
+  *output = g_string_free (lines, lines->len == 0);
+  return TRUE;
+}
+
 static gboolean
 playercmd_metadata (PlayerctlPlayer *player, gchar **argv, gint argc,
                     gchar **output, GError **error)
@@ -877,45 +904,7 @@ playercmd_metadata (PlayerctlPlayer *player, gchar **argv, gint argc,
     }
   else
     {
-      for (int i = 1; i < argc; ++i)
-        {
-          const gchar *type = argv[i];
-          gchar *data;
-
-          if (g_strcmp0 (type, "artist") == 0)
-            {
-              data = playerctl_player_get_artist (player, &tmp_error);
-            }
-          else if (g_strcmp0 (type, "title") == 0)
-            {
-              data = playerctl_player_get_title (player, &tmp_error);
-            }
-          else if (g_strcmp0 (type, "album") == 0)
-            {
-              data = playerctl_player_get_album (player, &tmp_error);
-            }
-          else
-            {
-              data = playerctl_player_print_metadata_prop (player, type,
-                                                           &tmp_error);
-            }
-
-          if (tmp_error)
-            {
-              g_propagate_error (error, tmp_error);
-              return FALSE;
-            }
-
-          if (data != NULL)
-            {
-              *output = g_strdup_printf ("%s\n", data);
-              g_free (data);
-            }
-          else
-            {
-              return FALSE;
-            }
-        }
+      return metadata_keys_output (player, argv, argc, output);
     }
 
   return TRUE;
@@ -956,26 +945,28 @@ struct player_command
   // does not need to load all of its properties first (a slow player would
   // delay the command)
   gboolean lazy;
+  // extra arguments set a value, which can not be formatted or followed
+  gboolean setter_with_args;
 } player_commands[] = {
-  { "open", &playercmd_open, NULL, FALSE, TRUE },
-  { "play", &playercmd_play, NULL, FALSE, TRUE },
-  { "pause", &playercmd_pause, NULL, FALSE, TRUE },
-  { "play-pause", &playercmd_play_pause, NULL, FALSE, TRUE },
-  { "stop", &playercmd_stop, NULL, FALSE, TRUE },
-  { "next", &playercmd_next, NULL, FALSE, TRUE },
-  { "previous", &playercmd_previous, NULL, FALSE, TRUE },
-  { "position", &playercmd_position, "seeked", TRUE, FALSE },
-  { "volume", &playercmd_volume, "volume", TRUE, FALSE },
-  { "status", &playercmd_status, "playback-status", TRUE, FALSE },
-  { "loop", &playercmd_loop, "loop-status", TRUE, FALSE },
-  { "shuffle", &playercmd_shuffle, "shuffle", TRUE, FALSE },
-  { "metadata", &playercmd_metadata, "metadata", TRUE, FALSE },
+  { "open", &playercmd_open, NULL, FALSE, TRUE, FALSE },
+  { "play", &playercmd_play, NULL, FALSE, TRUE, FALSE },
+  { "pause", &playercmd_pause, NULL, FALSE, TRUE, FALSE },
+  { "play-pause", &playercmd_play_pause, NULL, FALSE, TRUE, FALSE },
+  { "stop", &playercmd_stop, NULL, FALSE, TRUE, FALSE },
+  { "next", &playercmd_next, NULL, FALSE, TRUE, FALSE },
+  { "previous", &playercmd_previous, NULL, FALSE, TRUE, FALSE },
+  { "position", &playercmd_position, "seeked", TRUE, FALSE, TRUE },
+  { "volume", &playercmd_volume, "volume", TRUE, FALSE, TRUE },
+  { "status", &playercmd_status, "playback-status", TRUE, FALSE, FALSE },
+  { "loop", &playercmd_loop, "loop-status", TRUE, FALSE, TRUE },
+  { "shuffle", &playercmd_shuffle, "shuffle", TRUE, FALSE, TRUE },
+  { "metadata", &playercmd_metadata, "metadata", TRUE, FALSE, FALSE },
 };
 
 static const struct player_command *
 get_player_command (gchar **argv, gint argc, GError **error)
 {
-  if (argv == NULL || argc < 1)
+  if (argc < 1)
     {
       g_set_error (error, playerctl_cli_error_quark (), 1, "No command given");
       return NULL;
@@ -986,7 +977,10 @@ get_player_command (gchar **argv, gint argc, GError **error)
       const struct player_command command = player_commands[i];
       if (g_strcmp0 (command.name, argv[0]) == 0)
         {
-          if (format_string_arg != NULL && !command.supports_format)
+          gboolean setter = command.setter_with_args && argc > 1;
+
+          if (format_string_arg != NULL
+              && (!command.supports_format || setter))
             {
               g_set_error (error, playerctl_cli_error_quark (), 1,
                            "format strings are not supported on command: %s",
@@ -994,7 +988,7 @@ get_player_command (gchar **argv, gint argc, GError **error)
               return NULL;
             }
 
-          if (follow && (command.follow_signal == NULL))
+          if (follow && (command.follow_signal == NULL || setter))
             {
               g_set_error (error, playerctl_cli_error_quark (), 1,
                            "follow is not supported on command: %s", argv[0]);
@@ -1375,82 +1369,39 @@ player_vanished_callback (PlayerctlPlayerManager *manager,
     }
 }
 
+/* Rank of a player in the -p list; lower sorts first. A player not in the
+ * list ranks at the first %any (last when there is none). */
+static gint
+player_name_rank (const GList *names, const gchar *player)
+{
+  gint rank = INT_MAX;
+  gint any_rank = INT_MAX;
+  gint i = 0;
+
+  for (; names != NULL; names = names->next, i++)
+    {
+      const gchar *name = names->data;
+      if (g_strcmp0 (name, "%any") == 0)
+        {
+          any_rank = MIN (any_rank, i);
+        }
+      else if (pctl_player_name_string_instance_compare (name, player) == 0)
+        {
+          rank = MIN (rank, i);
+        }
+    }
+
+  return rank == INT_MAX ? any_rank : rank;
+}
+
 gint
 player_name_string_compare_func (gconstpointer a, gconstpointer b,
                                  gpointer user_data)
 {
-  const gchar *name_a = a;
-  const gchar *name_b = b;
-  GList *names = user_data;
+  gint rank_a = player_name_rank (user_data, a);
+  gint rank_b = player_name_rank (user_data, b);
 
-  if (g_strcmp0 (name_a, name_b) == 0)
-    {
-      return 0;
-    }
-
-  int a_match_index = -1;
-  int b_match_index = -1;
-
-  int any_index = INT_MAX;
-  int i = 0;
-  GList *l = NULL;
-  for (l = names; l != NULL; l = l->next)
-    {
-      gchar *name = l->data;
-
-      if (g_strcmp0 (name, "%any") == 0)
-        {
-          if (any_index == INT_MAX)
-            {
-              any_index = i;
-            }
-          ++i;
-          continue;
-        }
-
-      if (pctl_player_name_string_instance_compare (name, name_a) == 0)
-        {
-          if (a_match_index == -1)
-            {
-              a_match_index = i;
-            }
-        }
-
-      if (pctl_player_name_string_instance_compare (name, name_b) == 0)
-        {
-          if (b_match_index == -1)
-            {
-              b_match_index = i;
-            }
-        }
-      ++i;
-    }
-
-  if (a_match_index == -1 && b_match_index == -1)
-    {
-      // neither are in the list
-      return 0;
-    }
-
-  if (a_match_index == -1)
-    {
-      // b is in the list
-      return (b_match_index < any_index ? 1 : -1);
-    }
-
-  if (b_match_index == -1)
-    {
-      // a is in the list
-      return (a_match_index < any_index ? -1 : 1);
-    }
-
-  if (a_match_index == b_match_index)
-    {
-      // preserve order
-      return 0;
-    }
-
-  return (a_match_index < b_match_index ? -1 : 1);
+  return (rank_a > rank_b) - (rank_a < rank_b);
 }
 
 gint
@@ -1462,6 +1413,28 @@ player_name_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
                                           user_data);
 }
 
+/* Like player_name_compare_func, but at the same rank a name listed exactly
+ * (-p mpv) beats its instances, so a command picks it first. */
+static gint
+player_name_exact_first_compare_func (gconstpointer a, gconstpointer b,
+                                      gpointer user_data)
+{
+  const PlayerctlPlayerName *name_a = a;
+  const PlayerctlPlayerName *name_b = b;
+  gint result = player_name_compare_func (a, b, user_data);
+  if (result != 0)
+    {
+      return result;
+    }
+
+  GCompareFunc equal = (GCompareFunc)g_strcmp0;
+  gboolean exact_a
+      = g_list_find_custom (user_data, name_a->instance, equal) != NULL;
+  gboolean exact_b
+      = g_list_find_custom (user_data, name_b->instance, equal) != NULL;
+  return exact_b - exact_a;
+}
+
 gint
 player_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
 {
@@ -1469,8 +1442,8 @@ player_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
   PlayerctlPlayer *player_b = PLAYERCTL_PLAYER (b);
   gchar *name_a = NULL;
   gchar *name_b = NULL;
-  g_object_get (player_a, "player-name", &name_a, NULL);
-  g_object_get (player_b, "player-name", &name_b, NULL);
+  g_object_get (player_a, "player-instance", &name_a, NULL);
+  g_object_get (player_b, "player-instance", &name_b, NULL);
   gint result = player_name_string_compare_func (name_a, name_b, user_data);
   g_free (name_a);
   g_free (name_b);
@@ -1492,7 +1465,7 @@ main (int argc, char *argv[])
     {
       g_printerr ("%s\n", error->message);
       g_clear_error (&error);
-      exit (0);
+      exit (1);
     }
 
   player_names = parse_player_list (player_arg);
@@ -1551,7 +1524,8 @@ main (int argc, char *argv[])
   g_object_get (manager, "player-names", &available_players, NULL);
   available_players = g_list_copy (available_players);
   available_players = g_list_sort_with_data (
-      available_players, player_name_compare_func, (gpointer)player_names);
+      available_players, player_name_exact_first_compare_func,
+      (gpointer)player_names);
 
   PlayerctlPlayerName playerctld_name = {
     .instance = "playerctld",
@@ -1573,7 +1547,8 @@ main (int argc, char *argv[])
           available_players,
           pctl_player_name_new ("playerctld", PLAYERCTL_SOURCE_DBUS_SESSION));
       available_players = g_list_sort_with_data (
-          available_players, player_name_compare_func, (gpointer)player_names);
+          available_players, player_name_exact_first_compare_func,
+          (gpointer)player_names);
     }
 
   gboolean has_selected = FALSE;
