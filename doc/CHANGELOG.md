@@ -19,6 +19,9 @@
 - `playerctld` no longer aborts on an unexpected `PropertiesChanged`, which crashed it when Rhythmbox started playing (#24)
 - No abort on a malformed reply to `Properties.Get`, which crashed `metadata --follow` with Harmonoid (#44)
 - `-p mpv` selects `mpv` before `mpv.instance123` when both run and the daemon lists the instance first, and `-p name.instance1,name` ranks the instance by its full instance name while following
+- `playerctld` forwards the `TrackList` and `Playlists` signals (`TrackAdded`, `PlaylistChanged`, ...) of the active player
+- `playerctld` announces the `TrackList` and `Playlists` properties of a player that appeared after it started or gained the interface later, invalidates them with the right interface name when the last player leaves (it named `org.mpris.MediaPlayer2`) or when the new active player lacks an interface the previous one announced, and no longer warns about interfaces the player does have
+- `playerctld` asks a new player for `TrackList` and `Playlists` before `Player` and `Root`, so the announcement includes them, announces a late reply on its own, and no longer moves the player behind the others; replies for a player that vanished are dropped
 - Library: `PlayerctlPlayerManager` removes the player of the bus whose name vanished, not the same name on the other bus (`player-vanished` and `name-vanished` no longer disagree)
 
 ### Features

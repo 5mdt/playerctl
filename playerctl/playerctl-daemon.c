@@ -35,6 +35,35 @@
 #define PROPERTIES_INTERFACE "org.freedesktop.DBus.Properties"
 
 /**
+ * The optional MPRIS interfaces, with the properties invalidated for them when
+ * no player is left
+ */
+#define N_OPTIONAL 2
+static const struct
+{
+  const char *name;
+  const gchar *const *invalidated;
+} optional_interfaces[N_OPTIONAL] = {
+  { TRACKLIST_INTERFACE,
+    (const gchar *const[]){ "Tracks", "CanEditTracks", NULL } },
+  { PLAYLISTS_INTERFACE, (const gchar *const[]){ "PlaylistCount", "Orderings",
+                                                 "ActivePlaylist", NULL } },
+};
+
+static int
+optional_index (const char *interface_name)
+{
+  for (int i = 0; i < N_OPTIONAL; i++)
+    {
+      if (g_strcmp0 (interface_name, optional_interfaces[i].name) == 0)
+        {
+          return i;
+        }
+    }
+  return -1;
+}
+
+/**
  * A representation of an MPRIS player and its cached MPRIS properties
  */
 struct Player
@@ -45,17 +74,10 @@ struct Player
   GVariant *player_properties;
   GVariant *root_properties;
   // org.mpris.MediaPlayer2.TrackList and org.mpris.MediaPlayer2.Playlists are
-  // optional
-  struct
-  {
-    bool supported;
-    GVariant *properties;
-  } tracklist;
-  struct
-  {
-    bool supported;
-    GVariant *properties;
-  } playlists;
+  // optional: the player supports one while its properties are not NULL
+  GVariant *optional_properties[N_OPTIONAL];
+  // cancelled when the player goes away, so late replies skip it
+  GCancellable *cancellable;
 };
 
 struct PlayerctldContext
@@ -74,6 +96,8 @@ struct PlayerctldContext
   GQueue *pending_players;
   gint return_code;
   struct Player *pending_active;
+  // bit I set: optional interface I was announced for the active player
+  guint announced_optional;
 };
 
 /**
@@ -90,10 +114,7 @@ player_new (const char *unique, const char *well_known)
   player->position = 0;
   player->player_properties = NULL;
   player->root_properties = NULL;
-  player->tracklist.supported = false;
-  player->tracklist.properties = NULL;
-  player->playlists.supported = false;
-  player->playlists.properties = NULL;
+  player->cancellable = g_cancellable_new ();
   return player;
 }
 
@@ -119,17 +140,28 @@ player_free (struct Player *name)
     {
       g_variant_unref (name->root_properties);
     }
-  if (name->tracklist.properties != NULL)
+  for (int i = 0; i < N_OPTIONAL; i++)
     {
-      g_variant_unref (name->tracklist.properties);
+      if (name->optional_properties[i] != NULL)
+        {
+          g_variant_unref (name->optional_properties[i]);
+        }
     }
-  if (name->playlists.properties != NULL)
-    {
-      g_variant_unref (name->playlists.properties);
-    }
+  g_cancellable_cancel (name->cancellable);
+  g_object_unref (name->cancellable);
   g_free (name->unique);
   g_free (name->well_known);
   free (name);
+}
+
+/**
+ * Whether the replies to the initial property requests are enough to use the
+ * player
+ */
+static bool
+player_is_usable (struct Player *player)
+{
+  return player->player_properties != NULL && player->root_properties != NULL;
 }
 
 static gint
@@ -152,6 +184,39 @@ player_compare (gconstpointer a, gconstpointer b)
 }
 
 /*
+ * The cached properties of one interface of the player, or NULL for an
+ * interface that is not part of MPRIS
+ */
+static GVariant **
+player_cache_for (struct Player *player, const char *interface_name)
+{
+  if (g_strcmp0 (interface_name, PLAYER_INTERFACE) == 0)
+    {
+      return &player->player_properties;
+    }
+  if (g_strcmp0 (interface_name, ROOT_INTERFACE) == 0)
+    {
+      return &player->root_properties;
+    }
+  int optional = optional_index (interface_name);
+  return optional < 0 ? NULL : &player->optional_properties[optional];
+}
+
+static void
+player_cache_position (struct Player *player, GVariant *position)
+{
+  if (g_variant_is_of_type (position, G_VARIANT_TYPE_INT64))
+    {
+      player->position = g_variant_get_int64 (position);
+    }
+  else
+    {
+      g_debug ("%s: ignoring Position of type %s", player->well_known,
+               g_variant_get_type_string (position));
+    }
+}
+
+/*
  * Updates the properties for the player. Returns TRUE if the properties have
  * changed, or else FALSE.
  */
@@ -163,52 +228,9 @@ player_update_properties (struct Player *player, const char *interface_name,
   GVariantDict cached_properties;
   GVariantIter iter;
   GVariant *child;
-  enum MprisInterface
-  {
-    PLAYER,
-    TRACKLIST,
-    PLAYLISTS,
-    ROOT
-  } interface;
+  GVariant **cache = player_cache_for (player, interface_name);
 
-  if (g_strcmp0 (interface_name, PLAYER_INTERFACE) == 0)
-    {
-      interface = PLAYER;
-      g_variant_dict_init (&cached_properties, player->player_properties);
-    }
-  else if (g_strcmp0 (interface_name, TRACKLIST_INTERFACE) == 0)
-    {
-      interface = TRACKLIST;
-      // FIXME: new value of Tracks property is not sent in PropertiesChanged
-      // signal We may want to listen for TrackAdded, TrackRemoved and
-      // TrackListReplaced
-      if (!player->tracklist.supported)
-        {
-          g_warning (
-              "Player %s doesn't appear to support interface %s, but sent "
-              "PropertiesChanged regarding its properties.",
-              player->well_known, interface_name);
-        }
-      g_variant_dict_init (&cached_properties, player->tracklist.properties);
-    }
-  else if (g_strcmp0 (interface_name, PLAYLISTS_INTERFACE) == 0)
-    {
-      interface = PLAYLISTS;
-      if (!player->playlists.supported)
-        {
-          g_warning (
-              "Player %s doesn't appear to support interface %s, but sent "
-              "PropertiesChanged regarding its properties.",
-              player->well_known, interface_name);
-        }
-      g_variant_dict_init (&cached_properties, player->playlists.properties);
-    }
-  else if (g_strcmp0 (interface_name, ROOT_INTERFACE) == 0)
-    {
-      interface = ROOT;
-      g_variant_dict_init (&cached_properties, player->root_properties);
-    }
-  else
+  if (cache == NULL)
     {
       // a misbehaving player must not take the daemon down
       // (altdesktop/playerctl#268)
@@ -216,6 +238,7 @@ player_update_properties (struct Player *player, const char *interface_name,
                  interface_name);
       return FALSE;
     }
+  g_variant_dict_init (&cached_properties, *cache);
   if (!g_variant_is_of_type (properties, G_VARIANT_TYPE_VARDICT))
     {
       g_warning ("cannot update properties with unknown type: %s",
@@ -232,18 +255,11 @@ player_update_properties (struct Player *player, const char *interface_name,
       GVariant *prop_variant = g_variant_get_child_value (child, 1);
       GVariant *prop_value = g_variant_get_variant (prop_variant);
       // g_debug("key=%s, value=%s", key, g_variant_print(prop_value, TRUE));
-      if (interface == PLAYER && g_strcmp0 (key, "Position") == 0)
+      if (cache == &player->player_properties
+          && g_strcmp0 (key, "Position") == 0)
         {
           // gets cached separately (never counts as changed)
-          if (g_variant_is_of_type (prop_value, G_VARIANT_TYPE_INT64))
-            {
-              player->position = g_variant_get_int64 (prop_value);
-            }
-          else
-            {
-              g_debug ("%s: ignoring Position of type %s", player->well_known,
-                       g_variant_get_type_string (prop_value));
-            }
+          player_cache_position (player, prop_value);
           goto loop_out;
         }
       GVariant *cache_value
@@ -274,41 +290,11 @@ player_update_properties (struct Player *player, const char *interface_name,
       g_variant_unref (child);
     }
 
-  switch (interface)
+  if (*cache != NULL)
     {
-    case PLAYER:
-      if (player->player_properties != NULL)
-        {
-          g_variant_unref (player->player_properties);
-        }
-      player->player_properties
-          = g_variant_ref_sink (g_variant_dict_end (&cached_properties));
-      break;
-    case TRACKLIST:
-      if (player->tracklist.properties != NULL)
-        {
-          g_variant_unref (player->tracklist.properties);
-        }
-      player->tracklist.properties
-          = g_variant_ref_sink (g_variant_dict_end (&cached_properties));
-      break;
-    case PLAYLISTS:
-      if (player->playlists.properties != NULL)
-        {
-          g_variant_unref (player->playlists.properties);
-        }
-      player->playlists.properties
-          = g_variant_ref_sink (g_variant_dict_end (&cached_properties));
-      break;
-    case ROOT:
-      if (player->root_properties != NULL)
-        {
-          g_variant_unref (player->root_properties);
-        }
-      player->root_properties
-          = g_variant_ref_sink (g_variant_dict_end (&cached_properties));
-      break;
+      g_variant_unref (*cache);
     }
+  *cache = g_variant_ref_sink (g_variant_dict_end (&cached_properties));
 
   return changed;
 }
@@ -348,6 +334,29 @@ player_update_position_sync (struct Player *player,
   g_variant_unref (reply);
 }
 
+/**
+ * Fetch and cache the properties of one interface of the player
+ */
+static gboolean
+player_fetch_properties_sync (struct Player *player,
+                              struct PlayerctldContext *ctx,
+                              const char *interface_name, GError **error)
+{
+  GVariant *reply = g_dbus_connection_call_sync (
+      ctx->connection, player->unique, MPRIS_PATH, PROPERTIES_INTERFACE,
+      "GetAll", g_variant_new ("(s)", interface_name), NULL,
+      G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, error);
+  if (reply == NULL)
+    {
+      return FALSE;
+    }
+  GVariant *properties = g_variant_get_child_value (reply, 0);
+  player_update_properties (player, interface_name, properties);
+  g_variant_unref (properties);
+  g_variant_unref (reply);
+  return TRUE;
+}
+
 static GVariant *
 context_player_names_to_gvariant (struct PlayerctldContext *ctx)
 {
@@ -368,221 +377,136 @@ context_player_names_to_gvariant (struct PlayerctldContext *ctx)
 static const char *const playerctld_interfaces[]
     = { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY };
 
+/**
+ * Emit PropertiesChanged for one interface; CHANGED (NULL for none) is
+ * consumed if floating, INVALIDATED is a NULL terminated list (NULL for none)
+ */
+static gboolean
+context_emit_properties_changed (struct PlayerctldContext *ctx,
+                                 const char *interface_name, GVariant *changed,
+                                 const gchar *const *invalidated,
+                                 GError **error)
+{
+  static const gchar *const no_names[] = { NULL };
+  if (changed == NULL)
+    {
+      changed = g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0);
+    }
+  return g_dbus_connection_emit_signal (
+      ctx->connection, NULL, MPRIS_PATH, PROPERTIES_INTERFACE,
+      "PropertiesChanged",
+      g_variant_new ("(s@a{sv}@as)", interface_name, changed,
+                     g_variant_new_strv (
+                         invalidated != NULL ? invalidated : no_names, -1)),
+      error);
+}
+
+static const gchar *const player_invalidated[]
+    = { "CanControl",  "CanGoNext",   "CanGoPrevious",  "CanPause",
+        "CanPlay",     "CanSeek",     "Shuffle",        "Metadata",
+        "MaximumRate", "MinimumRate", "Rate",           "Volume",
+        "Position",    "LoopStatus",  "PlaybackStatus", NULL };
+static const gchar *const root_invalidated[] = { "SupportedMimeTypes",
+                                                 "SupportedUriSchemes",
+                                                 "CanQuit",
+                                                 "CanRaise",
+                                                 "CanSetFullScreen",
+                                                 "HasTrackList",
+                                                 "DesktopEntry",
+                                                 "Identity",
+                                                 NULL };
+
+/**
+ * Announce the optional interfaces of the player; one the player lacks is
+ * invalidated if it was announced before (or when there is no player)
+ */
+static gboolean
+context_emit_optional_properties (struct PlayerctldContext *ctx,
+                                  struct Player *player, GError **error)
+{
+  for (int i = 0; i < N_OPTIONAL; i++)
+    {
+      GVariant *properties = player ? player->optional_properties[i] : NULL;
+      guint bit = 1u << i;
+      if (properties == NULL && player != NULL
+          && !(ctx->announced_optional & bit))
+        {
+          continue;
+        }
+      if (!context_emit_properties_changed (
+              ctx, optional_interfaces[i].name, properties,
+              properties ? NULL : optional_interfaces[i].invalidated, error))
+        {
+          return FALSE;
+        }
+      ctx->announced_optional = properties ? ctx->announced_optional | bit
+                                           : ctx->announced_optional & ~bit;
+    }
+  return TRUE;
+}
+
+/**
+ * Announce the properties of the active player and its Seeked position, or
+ * invalidate them when there is none
+ */
+static gboolean
+context_emit_player_properties (struct PlayerctldContext *ctx,
+                                struct Player *player, GError **error)
+{
+  g_debug ("emitting %s signals for the active player",
+           player != NULL ? "property" : "invalidated property");
+  if (!context_emit_properties_changed (
+          ctx, PLAYER_INTERFACE, player ? player->player_properties : NULL,
+          player ? NULL : player_invalidated, error)
+      || !context_emit_properties_changed (
+          ctx, ROOT_INTERFACE, player ? player->root_properties : NULL,
+          player ? NULL : root_invalidated, error))
+    {
+      return FALSE;
+    }
+  if (!context_emit_optional_properties (ctx, player, error))
+    {
+      return FALSE;
+    }
+  if (player == NULL)
+    {
+      return TRUE;
+    }
+  g_debug ("sending Seeked signal with position %ld", player->position);
+  return g_dbus_connection_emit_signal (
+      ctx->connection, NULL, MPRIS_PATH, PLAYER_INTERFACE, "Seeked",
+      g_variant_new ("(x)", player->position), error);
+}
+
 static void
 context_emit_active_player_changed (struct PlayerctldContext *ctx,
                                     GError **error)
 {
-  GError *tmp_error = NULL;
   g_return_if_fail (error == NULL || *error == NULL);
 
   struct Player *player = g_queue_peek_head (ctx->players);
 
   for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
     {
-      g_dbus_connection_emit_signal (
-          ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
-          "ActivePlayerChangeBegin",
-          g_variant_new ("(s)", (player != NULL ? player->well_known : "")),
-          &tmp_error);
-      if (tmp_error != NULL)
+      if (!g_dbus_connection_emit_signal (
+              ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
+              "ActivePlayerChangeBegin",
+              g_variant_new ("(s)",
+                             (player != NULL ? player->well_known : "")),
+              error))
         {
-          g_propagate_error (error, tmp_error);
           return;
         }
     }
 
-  if (player != NULL
-      && (player->player_properties == NULL
-          || player->root_properties == NULL))
+  if (player != NULL && !player_is_usable (player))
     {
       g_warning ("active player '%s' has no properties, not announcing it",
                  player->well_known);
     }
-  else if (player != NULL)
+  else if (!context_emit_player_properties (ctx, player, error))
     {
-      g_debug ("emitting signals for new active player: '%s'",
-               player->well_known);
-      GVariant *player_children[3] = {
-        g_variant_new_string (PLAYER_INTERFACE),
-        player->player_properties,
-        g_variant_new_array (G_VARIANT_TYPE_STRING, NULL, 0),
-      };
-      GVariant *player_properties_tuple
-          = g_variant_new_tuple (player_children, 3);
-
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     player_properties_tuple, &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
-
-      GVariant *root_children[3] = {
-        g_variant_new_string (ROOT_INTERFACE),
-        player->root_properties,
-        g_variant_new_array (G_VARIANT_TYPE_STRING, NULL, 0),
-      };
-      GVariant *root_properties_tuple = g_variant_new_tuple (root_children, 3);
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     root_properties_tuple, &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
-
-      // Emit nothing for unsupported optional interfaces
-      if (player->tracklist.supported)
-        {
-          GVariant *tracklist_children[3] = {
-            g_variant_new_string (TRACKLIST_INTERFACE),
-            player->tracklist.properties,
-            g_variant_new_array (G_VARIANT_TYPE_STRING, NULL, 0),
-          };
-          GVariant *tracklist_properties_tuple
-              = g_variant_new_tuple (tracklist_children, 3);
-
-          g_dbus_connection_emit_signal (
-              ctx->connection, NULL, MPRIS_PATH, PROPERTIES_INTERFACE,
-              "PropertiesChanged", tracklist_properties_tuple, &tmp_error);
-          if (tmp_error != NULL)
-            {
-              g_propagate_error (error, tmp_error);
-              return;
-            }
-        }
-
-      if (player->playlists.supported)
-        {
-          GVariant *playlists_children[3] = {
-            g_variant_new_string (PLAYLISTS_INTERFACE),
-            player->playlists.properties,
-            g_variant_new_array (G_VARIANT_TYPE_STRING, NULL, 0),
-          };
-          GVariant *playlists_properties_tuple
-              = g_variant_new_tuple (playlists_children, 3);
-
-          g_dbus_connection_emit_signal (
-              ctx->connection, NULL, MPRIS_PATH, PROPERTIES_INTERFACE,
-              "PropertiesChanged", playlists_properties_tuple, &tmp_error);
-          if (tmp_error != NULL)
-            {
-              g_propagate_error (error, tmp_error);
-              return;
-            }
-        }
-
-      g_debug ("sending Seeked signal with position %ld", player->position);
-      g_dbus_connection_emit_signal (
-          ctx->connection, NULL, MPRIS_PATH, PLAYER_INTERFACE, "Seeked",
-          g_variant_new ("(x)", player->position), &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
-    }
-  else
-    {
-      g_debug ("emitting invalidated property signals, no active player");
-      const gchar *const player_properties[]
-          = { "CanControl",  "CanGoNext",   "CanGoPrevious", "CanPause",
-              "CanPlay",     "CanSeek",     "Shuffle",       "Metadata",
-              "MaximumRate", "MinimumRate", "Rate",          "Volume",
-              "Position",    "LoopStatus",  "PlaybackStatus" };
-      const gchar *const root_properties[] = { "SupportedMimeTypes",
-                                               "SupportedUriSchemes",
-                                               "CanQuit",
-                                               "CanRaise",
-                                               "CanSetFullScreen",
-                                               "HasTrackList",
-                                               "DesktopEntry",
-                                               "Identity" };
-      GVariant *player_invalidated = g_variant_new_strv (
-          player_properties,
-          sizeof (player_properties) / sizeof (player_properties[0]));
-      GVariant *root_invalidated = g_variant_new_strv (
-          root_properties,
-          sizeof (root_properties) / sizeof (root_properties[0]));
-      GVariant *player_children[3] = {
-        g_variant_new_string (PLAYER_INTERFACE),
-        g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0),
-        player_invalidated,
-      };
-      GVariant *root_children[3] = {
-        g_variant_new_string (ROOT_INTERFACE),
-        g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0),
-        root_invalidated,
-      };
-      GVariant *player_invalidated_tuple
-          = g_variant_new_tuple (player_children, 3);
-      GVariant *root_invalidated_tuple
-          = g_variant_new_tuple (root_children, 3);
-
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     player_invalidated_tuple, &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
-
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     root_invalidated_tuple, &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
-
-      // Assume old player supported all optional interfaces and invalidate
-      // those properties unconditionally
-      const gchar *const tracklist_properties[]
-          = { "Tracks", "CanEditTracks" };
-      GVariant *tracklist_invalidated = g_variant_new_strv (
-          tracklist_properties,
-          sizeof (tracklist_properties) / sizeof (tracklist_properties[0]));
-      GVariant *tracklist_children[3] = {
-        g_variant_new_string (ROOT_INTERFACE),
-        g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0),
-        tracklist_invalidated,
-      };
-      GVariant *tracklist_invalidated_tuple
-          = g_variant_new_tuple (tracklist_children, 3);
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     tracklist_invalidated_tuple, &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
-
-      const gchar *const playlists_properties[]
-          = { "PlaylistCount", "Orderings", "ActivePlaylist" };
-      GVariant *playlists_invalidated = g_variant_new_strv (
-          playlists_properties,
-          sizeof (playlists_properties) / sizeof (playlists_properties[0]));
-      GVariant *playlists_children[3] = {
-        g_variant_new_string (ROOT_INTERFACE),
-        g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0),
-        playlists_invalidated,
-      };
-      GVariant *playlists_invalidated_tuple
-          = g_variant_new_tuple (playlists_children, 3);
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     playlists_invalidated_tuple, &tmp_error);
-      if (tmp_error != NULL)
-        {
-          g_propagate_error (error, tmp_error);
-          return;
-        }
+      return;
     }
 
   for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
@@ -591,33 +515,22 @@ context_emit_active_player_changed (struct PlayerctldContext *ctx,
       g_variant_dict_init (&dict, NULL);
       g_variant_dict_insert_value (&dict, "PlayerNames",
                                    context_player_names_to_gvariant (ctx));
-
-      GVariant *playerctld_children[3] = {
-        g_variant_new_string (playerctld_interfaces[i]),
-        g_variant_dict_end (&dict),
-        g_variant_new_array (G_VARIANT_TYPE_STRING, NULL, 0),
-      };
-      GVariant *playerctld_properties
-          = g_variant_new_tuple (playerctld_children, 3);
-      g_dbus_connection_emit_signal (ctx->connection, NULL, MPRIS_PATH,
-                                     PROPERTIES_INTERFACE, "PropertiesChanged",
-                                     playerctld_properties, &tmp_error);
-      if (tmp_error != NULL)
+      if (!context_emit_properties_changed (ctx, playerctld_interfaces[i],
+                                            g_variant_dict_end (&dict), NULL,
+                                            error))
         {
-          g_propagate_error (error, tmp_error);
           return;
         }
     }
   for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
     {
-      g_dbus_connection_emit_signal (
-          ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
-          "ActivePlayerChangeEnd",
-          g_variant_new ("(s)", (player != NULL ? player->well_known : "")),
-          &tmp_error);
-      if (tmp_error != NULL)
+      if (!g_dbus_connection_emit_signal (
+              ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
+              "ActivePlayerChangeEnd",
+              g_variant_new ("(s)",
+                             (player != NULL ? player->well_known : "")),
+              error))
         {
-          g_propagate_error (error, tmp_error);
           return;
         }
     }
@@ -1302,55 +1215,90 @@ active_player_get_properties_async_callback (GObject *source_object,
 {
   GDBusConnection *connection = G_DBUS_CONNECTION (source_object);
   struct GetPropertiesUserData *data = user_data;
+  struct PlayerctldContext *ctx = data->ctx;
   GError *error = NULL;
   GVariant *body = g_dbus_connection_call_finish (connection, res, &error);
 
-  if (error != NULL)
+  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    {
+      // the player was freed meanwhile
+      g_clear_error (&error);
+      free (data);
+      return;
+    }
+  struct Player *player = data->player;
+  bool updated = (error == NULL);
+  if (!updated)
     {
       g_warning ("could not get properties for active player: %s",
                  error->message);
       g_clear_error (&error);
-      goto out;
-    }
-
-  g_debug ("got all properties response for name='%s', interface '%s'",
-           data->player->well_known, data->interface_name);
-  // g_debug("%s", g_variant_print(body_value, TRUE));
-
-  GVariant *body_value = g_variant_get_child_value (body, 0);
-  player_update_properties (data->player, data->interface_name, body_value);
-  g_variant_unref (body_value);
-  g_variant_unref (body);
-
-  if (data->player->player_properties == NULL
-      || data->player->root_properties == NULL)
-    {
-      // wait for both requests to complete before setting the player
-      // nonpending
-      goto out;
-    }
-
-  if (data->player == data->ctx->pending_active)
-    {
-      context_set_active_player (data->ctx, data->player);
-      context_emit_active_player_changed (data->ctx, &error);
-      if (error != NULL)
-        {
-          g_warning (
-              "could not emit properties changed signal for active player: %s",
-              error->message);
-          context_remove_player (data->ctx, data->player);
-          g_clear_error (&error);
-          goto out;
-        }
     }
   else
     {
-      context_add_player (data->ctx, data->player);
+      g_debug ("got all properties response for name='%s', interface '%s'",
+               player->well_known, data->interface_name);
+      GVariant *body_value = g_variant_get_child_value (body, 0);
+      player_update_properties (player, data->interface_name, body_value);
+      g_variant_unref (body_value);
+      g_variant_unref (body);
     }
 
+  if (g_queue_find (ctx->pending_players, player) != NULL)
+    {
+      // wait for both mandatory requests to complete before setting the
+      // player nonpending; the optional ones are asked first, so they are
+      // normally in by then
+      if (!player_is_usable (player))
+        {
+          goto out;
+        }
+      if (player == ctx->pending_active)
+        {
+          context_set_active_player (ctx, player);
+          context_emit_active_player_changed (ctx, &error);
+        }
+      else
+        {
+          context_add_player (ctx, player);
+        }
+    }
+  else if (updated && optional_index (data->interface_name) >= 0
+           && player == context_get_active_player (ctx))
+    {
+      // a late reply of the active player is announced on its own, the
+      // player keeps its place
+      context_emit_optional_properties (ctx, player, &error);
+    }
+  if (error != NULL)
+    {
+      g_warning (
+          "could not emit properties changed signal for active player: %s",
+          error->message);
+      context_remove_player (ctx, player);
+      g_clear_error (&error);
+    }
 out:
   free (data);
+}
+
+/**
+ * Ask the player for the properties of one interface
+ */
+static void
+player_request_properties (struct PlayerctldContext *ctx,
+                           struct Player *player, const char *interface_name)
+{
+  struct GetPropertiesUserData *data
+      = calloc (1, sizeof (struct GetPropertiesUserData));
+  data->interface_name = interface_name;
+  data->player = player;
+  data->ctx = ctx;
+  g_dbus_connection_call (
+      ctx->connection, player->unique, MPRIS_PATH, PROPERTIES_INTERFACE,
+      "GetAll", g_variant_new ("(s)", interface_name), NULL,
+      G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, player->cancellable,
+      active_player_get_properties_async_callback, data);
 }
 
 static void
@@ -1412,49 +1360,14 @@ name_owner_changed_signal_callback (GDBusConnection *connection,
       context_add_pending_player (ctx, player);
       ctx->pending_active = player;
 
-      struct GetPropertiesUserData *player_data
-          = calloc (1, sizeof (struct GetPropertiesUserData));
-      player_data->interface_name = PLAYER_INTERFACE;
-      player_data->player = player;
-      player_data->ctx = ctx;
-      g_dbus_connection_call (
-          connection, new_owner, MPRIS_PATH, PROPERTIES_INTERFACE, "GetAll",
-          g_variant_new ("(s)", PLAYER_INTERFACE), NULL,
-          G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL,
-          active_player_get_properties_async_callback, player_data);
-
-      struct GetPropertiesUserData *root_data
-          = calloc (1, sizeof (struct GetPropertiesUserData));
-      root_data->interface_name = ROOT_INTERFACE;
-      root_data->player = player;
-      root_data->ctx = ctx;
-      g_dbus_connection_call (
-          connection, new_owner, MPRIS_PATH, PROPERTIES_INTERFACE, "GetAll",
-          g_variant_new ("(s)", ROOT_INTERFACE), NULL,
-          G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL,
-          active_player_get_properties_async_callback, root_data);
-
-      struct GetPropertiesUserData *tracklist_data
-          = calloc (1, sizeof (struct GetPropertiesUserData));
-      tracklist_data->interface_name = TRACKLIST_INTERFACE;
-      tracklist_data->player = player;
-      tracklist_data->ctx = ctx;
-      g_dbus_connection_call (
-          connection, new_owner, MPRIS_PATH, PROPERTIES_INTERFACE, "GetAll",
-          g_variant_new ("(s)", TRACKLIST_INTERFACE), NULL,
-          G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL,
-          active_player_get_properties_async_callback, tracklist_data);
-
-      struct GetPropertiesUserData *playlists_data
-          = calloc (1, sizeof (struct GetPropertiesUserData));
-      playlists_data->interface_name = PLAYLISTS_INTERFACE;
-      playlists_data->player = player;
-      playlists_data->ctx = ctx;
-      g_dbus_connection_call (
-          connection, new_owner, MPRIS_PATH, PROPERTIES_INTERFACE, "GetAll",
-          g_variant_new ("(s)", PLAYLISTS_INTERFACE), NULL,
-          G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL,
-          active_player_get_properties_async_callback, playlists_data);
+      // the optional ones first: a player answers in order, so they are in
+      // by the time the mandatory ones promote the player
+      for (int i = 0; i < N_OPTIONAL; i++)
+        {
+          player_request_properties (ctx, player, optional_interfaces[i].name);
+        }
+      player_request_properties (ctx, player, PLAYER_INTERFACE);
+      player_request_properties (ctx, player, ROOT_INTERFACE);
     }
   else
     {
@@ -1505,6 +1418,31 @@ out:
   g_variant_unref (new_owner_variant);
 }
 
+/**
+ * Cache the properties of a PropertiesChanged signal of the player. Returns
+ * TRUE if they have changed.
+ */
+static gboolean
+player_apply_properties_changed (struct Player *player, GVariant *parameters)
+{
+  GVariant *interface = g_variant_get_child_value (parameters, 0);
+  GVariant *properties = g_variant_get_child_value (parameters, 1);
+  const gchar *name = g_variant_get_string (interface, 0);
+  GVariant **cache = player_cache_for (player, name);
+  if (cache != NULL && *cache == NULL)
+    {
+      // only the optional interfaces can be missing here; the change
+      // announces them
+      g_warning ("Player %s doesn't appear to support interface %s, but sent "
+                 "PropertiesChanged regarding its properties.",
+                 player->well_known, name);
+    }
+  gboolean changed = player_update_properties (player, name, properties);
+  g_variant_unref (interface);
+  g_variant_unref (properties);
+  return changed;
+}
+
 static void
 player_signal_proxy_callback (GDBusConnection *connection,
                               const gchar *sender_name,
@@ -1528,13 +1466,11 @@ player_signal_proxy_callback (GDBusConnection *connection,
            sender_name, object_path, interface_name, signal_name);
 
   if (g_strcmp0 (interface_name, PLAYER_INTERFACE) != 0
-      && g_strcmp0 (interface_name, PROPERTIES_INTERFACE) != 0)
+      && g_strcmp0 (interface_name, PROPERTIES_INTERFACE) != 0
+      && optional_index (interface_name) < 0)
     {
       return;
     }
-  g_debug ("got player signal: sender=%s, object_path=%s, interface_name=%s, "
-           "signal_name=%s",
-           sender_name, object_path, interface_name, signal_name);
 
   if (g_queue_find (ctx->pending_players, player) != NULL)
     {
@@ -1549,12 +1485,7 @@ player_signal_proxy_callback (GDBusConnection *connection,
 
   if (is_properties_changed)
     {
-      GVariant *interface = g_variant_get_child_value (parameters, 0);
-      GVariant *properties = g_variant_get_child_value (parameters, 1);
-      changed = player_update_properties (
-          player, g_variant_get_string (interface, 0), properties);
-      g_variant_unref (interface);
-      g_variant_unref (properties);
+      changed = player_apply_properties_changed (player, parameters);
     }
 
   if (changed && player != context_get_active_player (ctx))
@@ -1892,101 +1823,41 @@ main (int argc, char *argv[])
 
           GVariant *owner_reply_value
               = g_variant_get_child_value (owner_reply, 0);
-          const gchar *owner = g_variant_get_string (owner_reply_value, 0);
+          struct Player *player = player_new (
+              g_variant_get_string (owner_reply_value, 0), names[i]);
+          g_variant_unref (owner_reply_value);
+          g_variant_unref (owner_reply);
 
-          struct Player *player = player_new (owner, names[i]);
-
-          GVariant *reply = g_dbus_connection_call_sync (
-              ctx.connection, player->unique, MPRIS_PATH, PROPERTIES_INTERFACE,
-              "GetAll", g_variant_new ("(s)", PLAYER_INTERFACE), NULL,
-              G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-          if (error != NULL)
+          // org.mpris.MediaPlayer2.Player and org.mpris.MediaPlayer2
+          // properties are mandatory, get rid of "players" who don't support
+          // them
+          if (!player_fetch_properties_sync (player, &ctx, PLAYER_INTERFACE,
+                                             &error)
+              || !player_fetch_properties_sync (player, &ctx, ROOT_INTERFACE,
+                                                &error))
             {
-              // This interface is mandatory, get rid of "players" who don't
-              // support it
-              g_warning ("could not get player properties for player: %s",
+              g_warning ("could not get properties for player: %s",
                          player->well_known);
               player_free (player);
               g_clear_error (&error);
               continue;
             }
 
-          GVariant *properties = g_variant_get_child_value (reply, 0);
-          player_update_properties (player, PLAYER_INTERFACE, properties);
-          g_variant_unref (properties);
-          g_variant_unref (reply);
-
-          // org.mpris.MediaPlayer2 properties
-          reply = g_dbus_connection_call_sync (
-              ctx.connection, player->unique, MPRIS_PATH, PROPERTIES_INTERFACE,
-              "GetAll", g_variant_new ("(s)", ROOT_INTERFACE), NULL,
-              G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-          if (error != NULL)
+          // the other interfaces are optional, so we can keep the player
+          // around
+          for (int j = 0; j < N_OPTIONAL; j++)
             {
-              // This interface is mandatory, get rid of "players" who don't
-              // support it
-              g_warning ("could not get root properties for player: %s",
-                         player->well_known);
-              player_free (player);
-              g_clear_error (&error);
-              continue;
-            }
-
-          properties = g_variant_get_child_value (reply, 0);
-          player_update_properties (player, ROOT_INTERFACE, properties);
-          g_variant_unref (properties);
-          g_variant_unref (reply);
-
-          // org.mpris.MediaPlayer2.TrackList properties
-          player->tracklist.supported = true; // Or so we hope
-          reply = g_dbus_connection_call_sync (
-              ctx.connection, player->unique, MPRIS_PATH, PROPERTIES_INTERFACE,
-              "GetAll", g_variant_new ("(s)", TRACKLIST_INTERFACE), NULL,
-              G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-          if (error != NULL)
-            {
-              // This interface is optional, so we can keep the player around
-              player->tracklist.supported = false;
-              g_warning ("could not get tracklist properties for player: %s",
-                         player->well_known);
-              g_clear_error (&error);
-            }
-          else
-            {
-              properties = g_variant_get_child_value (reply, 0);
-              player_update_properties (player, TRACKLIST_INTERFACE,
-                                        properties);
-              g_variant_unref (properties);
-              g_variant_unref (reply);
-            }
-
-          // org.mpris.MediaPlayer2.Playlists properties
-          player->playlists.supported = true; // Or so we hope
-          reply = g_dbus_connection_call_sync (
-              ctx.connection, player->unique, MPRIS_PATH, PROPERTIES_INTERFACE,
-              "GetAll", g_variant_new ("(s)", PLAYLISTS_INTERFACE), NULL,
-              G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-          if (error != NULL)
-            {
-              // This interface is optional, so we can keep the player around
-              player->playlists.supported = false;
-              g_warning ("could not get playlists properties for player: %s",
-                         player->well_known);
-              g_clear_error (&error);
-            }
-          else
-            {
-              properties = g_variant_get_child_value (reply, 0);
-              player_update_properties (player, PLAYLISTS_INTERFACE,
-                                        properties);
-              g_variant_unref (properties);
-              g_variant_unref (reply);
+              if (!player_fetch_properties_sync (
+                      player, &ctx, optional_interfaces[j].name, &error))
+                {
+                  g_warning ("could not get %s properties for player: %s",
+                             optional_interfaces[j].name, player->well_known);
+                  g_clear_error (&error);
+                }
             }
 
           g_debug ("found player: %s", player->well_known);
           g_queue_push_head (ctx.players, player);
-          g_variant_unref (owner_reply_value);
-          g_variant_unref (owner_reply);
         }
     }
 
