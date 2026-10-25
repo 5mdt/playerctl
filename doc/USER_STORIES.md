@@ -177,9 +177,13 @@ Personas: **user** (desktop/hotkeys), **bar author** (polybar/waybar scripts), *
 - **Not testable:** `PlayerManager.manage_player(None)` and manager `set_property` through GI; internal `g_error` invariants and `assert(false)` branches; the fatal `g_error` reading the `metadata` property after a failed Get; startup scan against a player withholding a reply (25 s D-Bus timeout vs the 5 s test limit); a `Get` that never answers in the CLI (same timeout); `get_player_command` error in `player_appeared_callback`.
 
 ## Running the tests
-- `make coverage` runs the suite against a gcov-instrumented build in the container and writes reports to `build/coverage`.
-- `make test-c` builds and runs the C unit tests in `test/c` (GLib `g_test`, internals the CLI cannot reach) with `meson test` in the container.
-- `make test-asan` builds with AddressSanitizer and UBSan in the container and runs the C unit tests plus every pytest suite except `test/us11_library` (the GI tests load libplayerctl into an uninstrumented Python). Reports go to `build/asan`; `test/data/lsan.supp` suppresses GDBus and GLib allocations still live at exit. It finds the leaks and out-of-bounds reads that plain pytest cannot see, and fails until they are fixed.
-- `make test` runs the C unit tests and the whole pytest suite in the container and prints a per-category table (total, passed, failed, error, xfailed, skipped) built from their JUnit XML; XML and `summary.txt` go to `build/test-report`. `make test-asan` and `make coverage` print the same table. `make test-local` builds with meson on the host and runs pytest only.
-- `make pre-commit` (which runs `make coverage RECORD_HISTORY=1` and `make test-asan`) appends one run to `test/test_history.csv` (per category plus TOTAL) and `test/coverage_history.csv` (per source file plus TOTAL, from `gcovr --json-summary`), both kept in git; each is restored from `HEAD` first, so a commit holds one new run; it then redraws `doc/test-history.png` and `doc/test-badge.svg`. `make test-history-chart` charts them in `build/test-history.png` as a stacked area per category whose total height is the line coverage, split by each category's share of the tests; runs are matched by commit. `make test-history-backfill N=8` rewrites both files with the last N first-parent commits, measured one after the other with the current harness in snapshots under `build/backfill`, each row dated by its commit; commit the files so the restore from `HEAD` keeps them.
+
+Run `make help` for all targets. They run in the container.
+
+- `make test`: C unit tests and the whole pytest suite, with a per-category table (XML and `summary.txt` in `build/test-report`).
+- `make test-c`: only the C unit tests in `test/c` (internals the CLI cannot reach).
+- `make test-asan`: AddressSanitizer and UBSan build, C tests plus every pytest suite except `test/us11_library`; reports in `build/asan`. It finds leaks and out-of-bounds reads that plain pytest cannot see.
+- `make coverage`: gcov-instrumented run; reports in `build/coverage`.
+- `make pre-commit`: formatters, linters and the checks above, then records the run in `test/test_history.csv` and `test/coverage_history.csv` and redraws `doc/test-history.png` and `doc/test-badge.svg`. Commit those files too.
+- `make test-history-chart`: draws the history as a stacked area per category, one position per test run, in `build/test-history.png`.
 - The library stories (`test/us11_library`) need PyGObject (`uv sync --group gi`) and skip without it.
