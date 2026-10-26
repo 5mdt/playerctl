@@ -250,6 +250,10 @@ playerctl_player_properties_changed_callback (
           g_debug ("%s: track id updated to %s", instance, track_id);
           self->priv->cached_track_id = track_id;
           track_id_invalidated = TRUE;
+          // reset before the handlers of the signal below read the position
+          self->priv->cached_position = 0;
+          clock_gettime (CLOCK_MONOTONIC,
+                         &self->priv->cached_position_monotonic);
         }
       else
         {
@@ -260,12 +264,6 @@ playerctl_player_properties_changed_callback (
       // g_debug("metadata: %s", g_variant_print(metadata, TRUE));
       g_signal_emit (self, connection_signals[METADATA], 0, metadata);
       g_variant_unref (metadata);
-    }
-
-  if (track_id_invalidated)
-    {
-      self->priv->cached_position = 0;
-      clock_gettime (CLOCK_MONOTONIC, &self->priv->cached_position_monotonic);
     }
 
   if (playback_status == NULL && track_id_invalidated)
@@ -332,38 +330,38 @@ playerctl_player_properties_changed_callback (
 
       if (pctl_parse_playback_status (status_str, &status))
         {
+          PlayerctlPlaybackStatus old_status = self->priv->cached_status;
           switch (status)
             {
             case PLAYERCTL_PLAYBACK_STATUS_PLAYING:
               quark = g_quark_from_string ("playing");
-              if (self->priv->cached_status
-                  != PLAYERCTL_PLAYBACK_STATUS_PLAYING)
+              if (old_status != PLAYERCTL_PLAYBACK_STATUS_PLAYING)
                 {
                   clock_gettime (CLOCK_MONOTONIC,
                                  &self->priv->cached_position_monotonic);
                 }
-              g_signal_emit (self, connection_signals[PLAY], 0);
               break;
             case PLAYERCTL_PLAYBACK_STATUS_PAUSED:
               quark = g_quark_from_string ("paused");
               self->priv->cached_position = calculate_cached_position (
-                  self->priv->cached_status,
-                  &self->priv->cached_position_monotonic,
+                  old_status, &self->priv->cached_position_monotonic,
                   self->priv->cached_position);
-              // DEPRECATED
-              g_signal_emit (self, connection_signals[PAUSE], 0);
               break;
             case PLAYERCTL_PLAYBACK_STATUS_STOPPED:
               self->priv->cached_position = 0;
               quark = g_quark_from_string ("stopped");
-              // DEPRECATED
-              g_signal_emit (self, connection_signals[STOP], 0);
               break;
             }
 
-          if (self->priv->cached_status != status)
+          // update the cache first, so that the handlers read the new state
+          self->priv->cached_status = status;
+
+          // the PLAY, PAUSE and STOP signals are DEPRECATED; indexed by status
+          const guint status_signals[] = { PLAY, PAUSE, STOP };
+          g_signal_emit (self, connection_signals[status_signals[status]], 0);
+
+          if (old_status != status)
             {
-              self->priv->cached_status = status;
               g_signal_emit (self, connection_signals[PLAYBACK_STATUS], quark,
                              status);
             }
@@ -1235,7 +1233,7 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
   player->priv->proxy = org_mpris_media_player2_player_proxy_new_for_bus_sync (
       pctl_source_to_bus_type (player->priv->source),
       player->priv->load_properties
-          ? G_DBUS_PROXY_FLAGS_NONE
+          ? G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES
           : G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
       bus_name, "/org/mpris/MediaPlayer2", NULL, &tmp_error);
   if (tmp_error != NULL)
@@ -1254,10 +1252,22 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
       = org_mpris_media_player2_player_get_playback_status (
           player->priv->proxy);
 
-  PlayerctlPlaybackStatus status = 0;
-  if (pctl_parse_playback_status (playback_status_str, &status))
+  // a missing or unknown status is not "playing" (the zero value)
+  PlayerctlPlaybackStatus status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
+  if (!pctl_parse_playback_status (playback_status_str, &status))
     {
-      player->priv->cached_status = status;
+      status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
+    }
+  player->priv->cached_status = status;
+
+  // the track the client found, so that a change of the same track keeps the
+  // position
+  GVariant *metadata
+      = org_mpris_media_player2_player_dup_metadata (player->priv->proxy);
+  if (metadata != NULL)
+    {
+      player->priv->cached_track_id = metadata_get_track_id (metadata);
+      g_variant_unref (metadata);
     }
 
   g_signal_connect (player->priv->proxy, "g-properties-changed",
@@ -1785,6 +1795,35 @@ playerctl_player_get_album (PlayerctlPlayer *self, GError **err)
   return player_get_metadata_string (self, "xesam:album", err);
 }
 
+/* Sets a property of the player interface on the bus of the player and
+ * updates the property cache, as players such as cmus do not announce the
+ * change. */
+static void
+player_set_mpris_property (PlayerctlPlayer *self, const gchar *name,
+                           GVariant *value, GError **err)
+{
+  GError *tmp_error = NULL;
+  GDBusProxy *proxy = G_DBUS_PROXY (self->priv->proxy);
+
+  g_variant_ref_sink (value);
+  GVariant *result = g_dbus_connection_call_sync (
+      g_dbus_proxy_get_connection (proxy), self->priv->bus_name, MPRIS_PATH,
+      PROPERTIES_IFACE, SET_MEMBER,
+      g_variant_new ("(ssv)", PLAYER_IFACE, name, value), NULL,
+      G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
+  if (result != NULL)
+    {
+      g_variant_unref (result);
+      g_dbus_proxy_set_cached_property (proxy, name, value);
+    }
+  g_variant_unref (value);
+
+  if (tmp_error != NULL)
+    {
+      g_propagate_error (err, tmp_error);
+    }
+}
+
 /**
  * playerctl_player_set_volume
  * @self: a #PlayerctlPlayer
@@ -1798,7 +1837,6 @@ void
 playerctl_player_set_volume (PlayerctlPlayer *self, gdouble volume,
                              GError **err)
 {
-  GError *tmp_error = NULL;
 
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
@@ -1809,30 +1847,7 @@ playerctl_player_set_volume (PlayerctlPlayer *self, gdouble volume,
       return;
     }
 
-  GDBusConnection *connection
-      = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &tmp_error);
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return;
-    }
-
-  GVariant *result = g_dbus_connection_call_sync (
-      connection, self->priv->bus_name, MPRIS_PATH, PROPERTIES_IFACE,
-      SET_MEMBER,
-      g_variant_new ("(ssv)", PLAYER_IFACE, "Volume",
-                     g_variant_new ("d", volume)),
-      NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
-  if (result != NULL)
-    {
-      g_variant_unref (result);
-    }
-
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return;
-    }
+  player_set_mpris_property (self, "Volume", g_variant_new ("d", volume), err);
 }
 
 /**
@@ -1952,7 +1967,6 @@ void
 playerctl_player_set_loop_status (PlayerctlPlayer *self,
                                   PlayerctlLoopStatus status, GError **err)
 {
-  GError *tmp_error = NULL;
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
@@ -1965,30 +1979,8 @@ playerctl_player_set_loop_status (PlayerctlPlayer *self,
   const gchar *status_str = pctl_loop_status_to_string (status);
   g_return_if_fail (status_str != NULL);
 
-  GDBusConnection *connection
-      = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &tmp_error);
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return;
-    }
-
-  GVariant *result = g_dbus_connection_call_sync (
-      connection, self->priv->bus_name, MPRIS_PATH, PROPERTIES_IFACE,
-      SET_MEMBER,
-      g_variant_new ("(ssv)", PLAYER_IFACE, "LoopStatus",
-                     g_variant_new ("s", status_str)),
-      NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
-  if (result != NULL)
-    {
-      g_variant_unref (result);
-    }
-
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return;
-    }
+  player_set_mpris_property (self, "LoopStatus",
+                             g_variant_new ("s", status_str), err);
 }
 
 /**
@@ -2003,7 +1995,6 @@ void
 playerctl_player_set_shuffle (PlayerctlPlayer *self, gboolean shuffle,
                               GError **err)
 {
-  GError *tmp_error = NULL;
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
@@ -2013,30 +2004,8 @@ playerctl_player_set_shuffle (PlayerctlPlayer *self, gboolean shuffle,
       return;
     }
 
-  GDBusConnection *connection
-      = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &tmp_error);
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return;
-    }
-
-  GVariant *result = g_dbus_connection_call_sync (
-      connection, self->priv->bus_name, MPRIS_PATH, PROPERTIES_IFACE,
-      SET_MEMBER,
-      g_variant_new ("(ssv)", PLAYER_IFACE, "Shuffle",
-                     g_variant_new ("b", shuffle)),
-      NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
-  if (result != NULL)
-    {
-      g_variant_unref (result);
-    }
-
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return;
-    }
+  player_set_mpris_property (self, "Shuffle", g_variant_new ("b", shuffle),
+                             err);
 }
 
 char *

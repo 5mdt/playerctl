@@ -304,8 +304,11 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
   gboolean has_playerctld = FALSE;
 
   GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync (
-      bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.freedesktop.DBus",
-      "/org/freedesktop/DBus", "org.freedesktop.DBus", NULL, &tmp_error);
+      bus_type,
+      G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES
+          | G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+      NULL, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+      "org.freedesktop.DBus", NULL, &tmp_error);
 
   if (tmp_error != NULL)
     {
