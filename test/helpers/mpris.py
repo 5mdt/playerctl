@@ -371,7 +371,7 @@ class MprisPlaylists(ServiceInterface):
 
     @signal()
     def PlaylistChanged(self) -> '(oss)':
-        return [['/playlist/1', 'one', '']]
+        return ['/playlist/1', 'one', '']
 
 
 class MprisPlayer(ServiceInterface):
