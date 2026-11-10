@@ -21,6 +21,9 @@ WRONG_TYPES = [
 async def test_player_new_matches_an_instance_only_player(
     gi_run, mpris_factory
 ):
+    # XXX: stale audit line references (here and below), see
+    # test_us02_05_out_of_range.py; organised by audit round, not by user
+    # story.
     # audit: playerctl-player.c:1114 a PlayerctlPlayerName was read as a
     # gchar *, giving a garbage bus name for `new('vlc')` when only
     # vlc.instanceN is running

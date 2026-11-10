@@ -1,3 +1,7 @@
+/* STYLE: this file is not GNU style (4-space indent, braces on the K&R
+   line, return type on the same line) and about 77 lines exceed 79 columns.
+   "make format-check-c" only checks playerctl/, so nobody notices; clang-
+   format with the repo style rewrites the whole file. */
 /* Unit tests for the pctl_* helpers in playerctl-common.c. */
 
 #include <glib.h>

@@ -19,6 +19,9 @@ WARNING = 'deprecated D-Bus interface'
 
 async def warnings(playerctld):
     # let the daemon's stderr reader catch up
+    # XXX: SUSPICIOUS: a fixed sleep to "let the stderr reader catch up" is
+    # a timing assumption; flaky on a loaded host. Wait for the log line
+    # (with a timeout) instead.
     await asyncio.sleep(0.2)
     return [line for line in playerctld.log if WARNING in line]
 

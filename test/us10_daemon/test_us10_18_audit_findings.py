@@ -38,6 +38,9 @@ async def property_changes(listener):
 async def test_invalidated_optional_properties_name_their_interface(
     bus_address, playerctld, mpris_factory
 ):
+    # XXX: stale audit line references (here and below), see
+    # test_us02_05_out_of_range.py; the file is organised by audit round,
+    # not by user story like the rest of the suite.
     # audit: playerctl-daemon.c:527,548 the TrackList and Playlists
     # invalidations were sent with the Root interface name
     [rich] = await mpris_factory('rich', tracklist=True, playlists=True)

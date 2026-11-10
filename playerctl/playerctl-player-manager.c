@@ -76,6 +76,9 @@ static void
 playerctl_player_manager_set_property (GObject *object, guint property_id,
                                        const GValue *value, GParamSpec *pspec)
 {
+  /* XXX: dead code: a commented-out line, and set_property has only the
+     default case: no property is writable (all G_PARAM_READABLE), so the
+     function is not needed. */
   // PlayerctlPlayerManager *manager = PLAYERCTL_PLAYER_MANAGER(object);
 
   switch (property_id)
@@ -119,6 +122,10 @@ playerctl_player_manager_dispose (GObject *gobject)
 {
   PlayerctlPlayerManager *manager = PLAYERCTL_PLAYER_MANAGER (gobject);
 
+  /* HARDENING: dispose does not disconnect the g-signal handlers that hold
+     this manager as user_data; harmless today because the manager owns the
+     only reference to the proxies, but
+     g_signal_handlers_disconnect_by_data() would make it robust. */
   g_clear_error (&manager->priv->init_error);
   g_clear_object (&manager->priv->session_proxy);
   g_clear_object (&manager->priv->system_proxy);
@@ -126,6 +133,9 @@ playerctl_player_manager_dispose (GObject *gobject)
   G_OBJECT_CLASS (playerctl_player_manager_parent_class)->dispose (gobject);
 }
 
+/* FIXME: priv->sort_notify is stored (L542) but never called, neither here
+   nor when set_sort_func() replaces it, so the destroy notify promised by
+   the API docs never runs and sort_data leaks. */
 static void
 playerctl_player_manager_finalize (GObject *gobject)
 {
@@ -149,6 +159,7 @@ playerctl_player_manager_class_init (PlayerctlPlayerManagerClass *klass)
   gobject_class->dispose = playerctl_player_manager_dispose;
   gobject_class->finalize = playerctl_player_manager_finalize;
 
+  /* STYLE: doc comment lines longer than 79 columns (also L172). */
   /**
    * PlayerctlPlayerManager:players: (transfer none) (type GList(PlayerctlPlayer))
    *
@@ -183,6 +194,8 @@ playerctl_player_manager_class_init (PlayerctlPlayerManagerClass *klass)
    * playerctl_player_manager_manage_player() to add it to the managed list of
    * players.
    */
+  /* XXX: SUSPICIOUS: name-appeared is G_SIGNAL_RUN_LAST while the other
+     three signals are RUN_FIRST; probably unintended. */
   connection_signals[NAME_APPEARED] = g_signal_new (
       "name-appeared", PLAYERCTL_TYPE_PLAYER_MANAGER, G_SIGNAL_RUN_LAST, 0,
       NULL, NULL, g_cclosure_marshal_VOID__BOXED, G_TYPE_NONE, 1,
@@ -264,6 +277,10 @@ manager_remove_managed_player_by_name (PlayerctlPlayerManager *manager,
   for (l = manager->priv->players; l != NULL; l = l->next)
     {
       PlayerctlPlayer *player = PLAYERCTL_PLAYER (l->data);
+      /* XXX: SUSPICIOUS: pctl_player_get_instance() is NULL for a player
+         created by playerctl_player_new() or _new_for_source() (see
+         playerctl-player.c:1294), so such a managed player never matches
+         here and is not removed when its name vanishes. */
       gchar *instance = pctl_player_get_instance (player);
       PlayerctlPlayerName managed = { .instance = instance };
       g_object_get (player, "source", &managed.source, NULL);
@@ -280,6 +297,10 @@ manager_remove_managed_player_by_name (PlayerctlPlayerManager *manager,
     }
 }
 
+/* STYLE: sender_name and signal_name should be
+   const gchar *, and data is gpointer, not gpointer
+   *; the type does not match the "g-signal"
+   handler. */
 static void
 dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
                                   gchar *signal_name, GVariant *parameters,
@@ -321,6 +342,8 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
     }
   else
     {
+      /* XXX: dead code: g_error() does not return, so the unref and return
+         below never run (and player_id would leak). */
       g_error ("got unknown proxy in callback (this is a bug in playerctl)");
       g_variant_unref (name_variant);
       return;
@@ -334,6 +357,10 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
   const gchar *new_owner = g_variant_get_string (new_owner_variant, NULL);
 
   GList *player_entry = NULL;
+  /* XXX: SUSPICIOUS: strlen (x) == 0 as emptiness test (also L381). A
+     change of owner (old and new both non-empty, a player restarting under
+     the same name) matches neither branch, so no name-vanished and name-
+     appeared pair is emitted. */
   if (strlen (new_owner) == 0 && strlen (previous_owner) != 0)
     {
       // the name has vanished
@@ -390,6 +417,8 @@ playerctl_player_manager_initable_init (GInitable *initable,
       return TRUE;
     }
 
+  /* XXX: DRY: the session and the system proxy creation (to L455) are the
+     same block twice, with the same TODO. */
   manager->priv->session_proxy = g_dbus_proxy_new_for_bus_sync (
       G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, NULL,
       "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
@@ -433,6 +462,8 @@ playerctl_player_manager_initable_init (GInitable *initable,
       return FALSE;
     }
 
+  /* STYLE: G_DBUS_PROXY () casts of values that already have that type
+     (also L469, L475). */
   if (manager->priv->session_proxy)
     {
       g_signal_connect (
@@ -504,6 +535,8 @@ playerctl_player_manager_set_sort_func (PlayerctlPlayerManager *manager,
                                         gpointer sort_data,
                                         GDestroyNotify notify)
 {
+  /* XXX: SUSPICIOUS: set_sort_func() overwrites the previous sort_data and
+     notify without calling the old notify, and does not check manager. */
   // TODO figure out how to make this work with the bindings
   manager->priv->sort_func = sort_func;
   manager->priv->sort_data = sort_data;
@@ -527,6 +560,9 @@ void
 playerctl_player_manager_move_player_to_top (PlayerctlPlayerManager *manager,
                                              PlayerctlPlayer *player)
 {
+  /* XXX: DRY: the three list scans (L276, L566, L608) are g_list_find ()
+     with extra steps; L608 is exactly g_list_find (players, player) !=
+     NULL. */
   GList *l;
   for (l = manager->priv->players; l != NULL; l = l->next)
     {

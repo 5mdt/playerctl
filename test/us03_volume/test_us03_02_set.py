@@ -49,6 +49,8 @@ async def test_volume_out_of_range_not_applied(arg, playerctl, mpris_factory):
     await playerctl.run(f'-p commands volume -- {arg}')
 
     # either rejected (unchanged) or clamped, but never outside 0.0-1.0
+    # XXX: SUSPICIOUS: "either rejected or clamped" accepts both behaviours;
+    # pick the specified one and assert it exactly.
     assert 0.0 <= mpris.volume <= 1.0
 
 

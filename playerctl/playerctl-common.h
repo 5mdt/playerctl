@@ -53,6 +53,9 @@ gchar *pctl_player_base_name (const gchar *instance);
 PlayerctlPlayerName *pctl_player_name_new (const gchar *instance,
                                            PlayerctlSource source);
 
+/* STYLE: pctl_player_name_compare, _instance_compare, _find and
+   _find_instance take non-const pointers (gchar *player_id) although they
+   do not modify them. */
 gint pctl_player_name_compare (PlayerctlPlayerName *name_a,
                                PlayerctlPlayerName *name_b);
 
@@ -72,8 +75,8 @@ void pctl_player_name_list_destroy (GList *list);
 
 GList *pctl_list_player_names_on_bus (GBusType bus_type, GError **err);
 
+/* STYLE: bool here while the rest of the header uses gboolean. */
 bool pctl_player_has_cached_property (PlayerctlPlayer *player,
                                       const gchar *name);
 
-#undef __PLAYERCTL_COMMON_H__
 #endif

@@ -23,7 +23,7 @@
  * playerctl_player_name_copy:
  * @name: a #PlayerctlPlayerName
  *
- * Creates a dynamically allocated name name container as a copy of
+ * Creates a dynamically allocated name container as a copy of
  * @name.
  *
  * Returns: (transfer full): a newly-allocated copy of @name
@@ -36,9 +36,13 @@ playerctl_player_name_copy (PlayerctlPlayerName *name)
   g_return_val_if_fail (name != NULL, NULL);
 
   // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new0 macro expansion
+  /* XXX: SUSPICIOUS: g_slice_new0() is deprecated since GLib 2.76, see
+     playerctl-common.c:212. */
   retval = g_slice_new0 (PlayerctlPlayerName);
   *retval = *name;
 
+  /* XXX: dead code: *retval = *name already copied source, and instance and
+     name are replaced right after; only the g_strdup () lines matter. */
   retval->source = name->source;
   retval->instance = g_strdup (name->instance);
   retval->name = g_strdup (name->name);

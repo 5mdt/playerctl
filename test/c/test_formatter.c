@@ -1,3 +1,7 @@
+/* STYLE: not GNU style either (see test_common.c); about 46 lines exceed 79
+   columns. Also, the glib unit tests cover only common, formatter and
+   player-name; cli, daemon, player and manager are tested through the
+   Python suite only. */
 /* Unit tests for playerctl-formatter.c. The implementation is included so the
  * static tokenizer / template functions can be called directly. */
 

@@ -30,6 +30,9 @@ async def stop_all():
         await stop_process(proc, *tasks)
 
 
+# XXX: SUSPICIOUS: stdout and stderr are strip()ped, so no test can see a
+# trailing newline or the extra empty line after error messages that already
+# end in "\n" (playerctl-cli.c:462).
 class CommandResult:
     def __init__(self, stdout, stderr, returncode):
         self.stdout = stdout.decode().strip()
@@ -38,6 +41,7 @@ class CommandResult:
 
 
 class PlayerctlProcess:
+    # XXX: dead code: the debug argument is never used.
     def __init__(self, proc, debug=False):
         self.queue = asyncio.Queue()
         self.proc = proc

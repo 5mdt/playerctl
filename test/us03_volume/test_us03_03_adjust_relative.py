@@ -48,9 +48,14 @@ async def test_volume_adjust_stays_within_bounds(
     result = await playerctl.run(f'-p commands volume {arg}')
 
     assert result.returncode == 0, result.stderr
+    # XXX: SUSPICIOUS: weak assertion; the test passes whether the volume
+    # stayed or was clamped, and for an in-range value after any wrong
+    # adjustment. Assert the exact expected value.
     assert 0.0 <= mpris.volume <= 1.0
 
 
+# XXX: DRY: same body as test_volume_invalid_absolute_rejected in
+# test_us03_02_set.py; merge or share.
 @pytest.mark.parametrize('arg', ['abc', 'x+', 'one-', '+', '-'])
 async def test_volume_adjust_invalid_rejected(arg, playerctl, mpris_factory):
     [mpris] = await mpris_factory('commands')

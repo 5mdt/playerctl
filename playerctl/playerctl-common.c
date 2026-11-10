@@ -25,8 +25,14 @@
 #include <string.h>
 #include <strings.h>
 
+/* XXX: DRY: the bus name "org.mpris.MediaPlayer2.playerctld" is written out
+   in playerctl-daemon.c:1661, playerctl-daemon.c:1715 and playerctl-
+   daemon.c:1999; the macro lives only here. */
 #define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
 
+/* XXX: DRY: parse and to_string for the playback status and the loop status
+   (to L119) are four functions over two name tables; one table each would
+   do. */
 gboolean
 pctl_parse_playback_status (const gchar *status_str,
                             PlayerctlPlaybackStatus *status)
@@ -175,6 +181,8 @@ pctl_bus_type_to_source (GBusType bus_type)
     case G_BUS_TYPE_SYSTEM:
       return PLAYERCTL_SOURCE_DBUS_SYSTEM;
     default:
+      /* STYLE: g_warning() message ends with "\n" and an enum is printed
+         with %d. */
       g_warning ("could not convert bus type to source: %d\n", bus_type);
       return PLAYERCTL_SOURCE_NONE;
     }
@@ -184,6 +192,8 @@ pctl_bus_type_to_source (GBusType bus_type)
 gchar *
 pctl_player_base_name (const gchar *instance)
 {
+  /* XXX: SUSPICIOUS: 9 is strlen (".instance"), written as a bare number
+     three times in this function. */
   const gchar *suffix = g_strrstr (instance, ".instance");
   if (suffix != NULL && suffix != instance && suffix[9] != '\0'
       && suffix[9 + strspn (suffix + 9, "0123456789")] == '\0')
@@ -196,6 +206,9 @@ pctl_player_base_name (const gchar *instance)
 PlayerctlPlayerName *
 pctl_player_name_new (const gchar *instance, PlayerctlSource source)
 {
+  /* XXX: SUSPICIOUS: g_slice_new() and g_slice_free() are deprecated since
+     GLib 2.76 (also playerctl-player-name.c); g_new() and g_free() do the
+     same. */
   // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new macro expansion
   PlayerctlPlayerName *player_name = g_slice_new (PlayerctlPlayerName);
   player_name->name = pctl_player_base_name (instance);
@@ -204,6 +217,10 @@ pctl_player_name_new (const gchar *instance, PlayerctlSource source)
   return player_name;
 }
 
+/* XXX: SUSPICIOUS: pctl_player_name_compare() is used as a sort comparator
+   (L452) but returns 1 in both directions when the sources differ, so it is
+   not an ordering. It is only correct because all names of one bus share a
+   source. Parameters should be const (also L236, L274, L301). */
 gint
 pctl_player_name_compare (PlayerctlPlayerName *name_a,
                           PlayerctlPlayerName *name_b)
@@ -240,6 +257,8 @@ pctl_player_name_string_instance_compare (const gchar *name,
   gboolean instance_match
       = !exact_match
         && (g_str_has_prefix (instance, name)
+            /* XXX: KISS: strlen (instance) > strlen (name) is implied by
+               the prefix test plus the "." test below it. */
             && strlen (instance) > strlen (name)
             && g_str_has_prefix (instance + strlen (name), "."));
 
@@ -259,6 +278,11 @@ pctl_player_name_find (GList *list, gchar *player_id, PlayerctlSource source)
     .source = source,
   };
 
+  /* STYLE: pctl_player_name_compare and
+     instance_compare_item_key (L310) are cast to
+     GCompareFunc; calling through a different
+     function type is undefined in C. Wrap them with
+     the right signature. */
   return g_list_find_custom (list, &player_name,
                              (GCompareFunc)pctl_player_name_compare);
 }
@@ -296,6 +320,8 @@ pctl_player_name_list_destroy (GList *list)
   g_list_free_full (list, (GDestroyNotify)playerctl_player_name_free);
 }
 
+/* XXX: KISS: pctl_list_player_names_on_bus() is 130 lines with five nesting
+   levels (lizard). */
 GList *
 pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
 {
@@ -361,9 +387,11 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
       if (g_strcmp0 (names[i], PLAYERCTLD_BUS_NAME) == 0)
         {
           g_debug ("%s", "Playerctld is running. Getting names from there.");
-          has_playerctld = TRUE;
 
           GVariant *playerctld_reply = NULL;
+          /* XXX: DRY: the pair { PLAYERCTLD_INTERFACE,
+             PLAYERCTLD_INTERFACE_LEGACY } is also declared in playerctl-
+             daemon.c:409; put it in playerctl-common.h. */
           const gchar *interfaces[]
               = { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY };
           for (gsize j = 0;

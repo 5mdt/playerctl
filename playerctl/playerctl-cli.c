@@ -38,6 +38,9 @@
 G_DEFINE_QUARK(playerctl-cli-error-quark, playerctl_cli_error);
 // clang-format on
 
+/* XXX: SUSPICIOUS: fifteen file-scope mutable globals plus a second state
+   holder (playercmd_args); every command reads "formatter" directly, so
+   none can be tested in isolation. */
 /* The CLI will exit with this exit status */
 static gint exit_status = 0;
 /* A comma separated list of players to control. */
@@ -47,6 +50,8 @@ static gchar *ignore_player_arg = NULL;
 /* If true, control all available media players */
 static gboolean select_all_players;
 /* If true, list all available players' names and exit. */
+/* STYLE: // comments appear here too (about 20 in this file); GNU style
+   uses block comments. */
 static gboolean list_all_players_and_exit;
 /* If true, print the version and exit. */
 static gboolean print_version_and_exit;
@@ -120,6 +125,8 @@ static struct playercmd_args *playercmd_args = NULL;
 static struct playercmd_args *
 playercmd_args_create (gchar **argv, gint argc)
 {
+  /* XXX: calloc() and free() (L146) are mixed with GLib allocators and the
+     result is not checked; use g_new0() and g_free(). */
   struct playercmd_args *user_data
       = calloc (1, sizeof (struct playercmd_args));
   user_data->argc = argc;
@@ -169,6 +176,8 @@ get_metadata_formatted (PlayerctlPlayer *player, GError **error)
   GVariantDict *context = playerctl_formatter_default_template_context (
       formatter, player, metadata);
 
+  /* XXX: KISS: metadata and context are released on both paths; release
+     them first, then test tmp_error. */
   gchar *result
       = playerctl_formatter_expand_format (formatter, context, &tmp_error);
   if (tmp_error)
@@ -185,6 +194,10 @@ get_metadata_formatted (PlayerctlPlayer *player, GError **error)
   return result;
 }
 
+/* XXX: DRY: playercmd_play, _pause, _play_pause, _stop, _next and _previous
+   (to L352) are six copies of one 25-line function that differ in the Can*
+   property, the library call and a debug message. One helper taking those
+   would remove about 120 lines. */
 static gboolean
 playercmd_play (PlayerctlPlayer *player, gchar **argv, gint argc,
                 gchar **output, GError **error)
@@ -342,6 +355,9 @@ static gboolean
 playercmd_open (PlayerctlPlayer *player, gchar **argv, gint argc,
                 gchar **output, GError **error)
 {
+  /* XXX: SUSPICIOUS: three ways to ask "was an argument given": argv[1] !=
+     NULL (open, position, volume), argc > 1 (shuffle, loop) and argc == 1
+     (metadata). argc is unused by most commands. */
   const gchar *uri = argv[1];
   GError *tmp_error = NULL;
   gchar *instance = pctl_player_get_instance (player);
@@ -355,6 +371,7 @@ playercmd_open (PlayerctlPlayer *player, gchar **argv, gint argc,
       return FALSE;
     }
 
+  /* XXX: SUSPICIOUS: "open" without an argument succeeds and does nothing. */
   if (uri)
     {
       GFile *file = g_file_new_for_commandline_arg (uri);
@@ -420,6 +437,8 @@ parse_relative_number (const gchar *text, gdouble *value, gboolean *relative)
   return TRUE;
 }
 
+/* XXX: KISS: playercmd_position() sets, seeks and prints in about 90 lines
+   and four nesting levels (lizard). */
 static gboolean
 playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
                     gchar **output, GError **error)
@@ -436,6 +455,10 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
 
       if (!parse_relative_number (position, &seconds, &relative))
         {
+          /* XXX: SUSPICIOUS: error code 1 is used for every CLI error (also
+             L470, L561, L708, L789, L1019-L1003), and some messages end in
+             "\n" (L463, L471, L562) so the caller prints an extra empty
+             line. */
           g_set_error (error, playerctl_cli_error_quark (), 1,
                        "Could not parse position as a number: %s\n", position);
           return FALSE;
@@ -478,6 +501,9 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
     }
   else
     {
+      /* XXX: DRY: this default_template_context, expand_format, free,
+         printf "%s\n" block exists five times (also L608, L647, L741,
+         L816). */
       if (formatter != NULL)
         {
           GVariantDict *context
@@ -499,6 +525,10 @@ playercmd_position (PlayerctlPlayer *player, gchar **argv, gint argc,
         }
       else
         {
+          /* XXX: SUSPICIOUS: with a formatter the cached-property check is
+             skipped (here and in loop, L814), so --format renders a player
+             that has no such property; volume, status and shuffle check
+             first. */
           if (!pctl_player_has_cached_property (player, "Position"))
             {
               g_debug ("%s: player has no cached position, skipping",
@@ -535,6 +565,9 @@ playercmd_volume (PlayerctlPlayer *player, gchar **argv, gint argc,
 
       if (relative)
         {
+          /* XXX: SUSPICIOUS: a relative volume reads the property without
+             the cached-property check of the query branch (L598); for a
+             player without Volume the result is 0 plus the adjustment. */
           gdouble adjustment = level;
           g_object_get (player, "volume", &level, NULL);
           level += adjustment;
@@ -551,6 +584,7 @@ playercmd_volume (PlayerctlPlayer *player, gchar **argv, gint argc,
           return FALSE;
         }
 
+      /* STYLE: g_debug messages end with "\n" (also L729, L804). */
       g_debug ("%s: setting volume to %f\n", instance, level);
       playerctl_player_set_volume (player, level, &tmp_error);
       if (tmp_error != NULL)
@@ -576,6 +610,7 @@ playercmd_volume (PlayerctlPlayer *player, gchar **argv, gint argc,
                                                               player, NULL);
           gchar *formatted = playerctl_formatter_expand_format (
               formatter, context, &tmp_error);
+          g_variant_dict_unref (context);
           if (tmp_error != NULL)
             {
               g_propagate_error (error, tmp_error);
@@ -629,6 +664,9 @@ playercmd_status (PlayerctlPlayer *player, gchar **argv, gint argc,
       PlayerctlPlaybackStatus status = 0;
       g_object_get (player, "playback-status", &status, NULL);
       const gchar *status_str = pctl_playback_status_to_string (status);
+      /* XXX: assert() on runtime values vanishes with NDEBUG; and the
+         asserts at L1281, L1290 and L1375 are dead: the table entries
+         always have a func and PLAYERCTL_PLAYER() already checks the type. */
       assert (status_str != NULL);
       *output = g_strdup_printf ("%s\n", status_str);
     }
@@ -648,6 +686,9 @@ playercmd_shuffle (PlayerctlPlayer *player, gchar **argv, gint argc,
       gchar *status_str = argv[1];
       gboolean status = FALSE;
 
+      /* XXX: SUSPICIOUS: strcasecmp() is POSIX, depends on the locale and
+         <strings.h> is not included here (only in playerctl-common.c);
+         g_ascii_strcasecmp() is portable. */
       if (strcasecmp (status_str, "on") == 0)
         {
           status = TRUE;
@@ -916,6 +957,11 @@ managed_player_properties_callback (PlayerctlPlayer *player, gpointer data)
   playerctl_player_manager_move_player_to_top (manager, player);
   GError *error = NULL;
   managed_players_execute_command (&error);
+  if (error != NULL)
+    {
+      g_debug ("could not execute command: %s", error->message);
+      g_clear_error (&error);
+    }
 }
 
 static gboolean
@@ -934,6 +980,9 @@ playercmd_tick_callback (gpointer data)
   return TRUE;
 }
 
+/* STYLE: global array with external linkage defined together with its
+   struct type; make it static const. The six positional TRUE/FALSE
+   initialisers are unreadable; use designated initialisers. */
 struct player_command
 {
   const gchar *name;
@@ -974,6 +1023,8 @@ get_player_command (gchar **argv, gint argc, GError **error)
 
   for (gsize i = 0; i < LENGTH (player_commands); ++i)
     {
+      /* XXX: KISS: copies the whole struct only to return
+         &player_commands[i]; use a pointer. */
       const struct player_command command = player_commands[i];
       if (g_strcmp0 (command.name, argv[0]) == 0)
         {
@@ -1037,6 +1088,9 @@ static const GOptionEntry entries[] = {
 static gboolean
 parse_setup_options (int argc, char *argv[], GError **error)
 {
+  /* XXX: DRY: the command help text exists here, in doc/playerctl.1.in and
+     in doc/usage.md. Odd literal splits ("previous " "track") show it was
+     re-wrapped by hand. */
   static const gchar *description
       = "Available Commands:"
         "\n  play                    Command the player to play"
@@ -1096,6 +1150,9 @@ parse_setup_options (int argc, char *argv[], GError **error)
       printf ("%s\n", help);
       g_option_context_free (context);
       g_free (help);
+      /* XXX: KISS: the parser prints the help and calls exit (1) itself;
+         main() exits in six more places without cleanup (L1554-L1504) while
+         others go through "end". */
       exit (1);
     }
 
@@ -1113,6 +1170,9 @@ parse_player_list (gchar *player_list_arg)
     }
 
   const gchar *delim = ",";
+  /* XXX: KISS: strtok() writes into the global argument and is not
+     reentrant; g_strsplit() with g_strstrip() is simpler. The delimiter is
+     written twice (L1171, L1179). */
   gchar *token = strtok (player_list_arg, delim);
   while (token != NULL)
     {
@@ -1128,6 +1188,8 @@ name_is_selected (const gchar *name)
 {
   if (ignored_player_names != NULL)
     {
+      /* XXX: DRY: the ignored and the selected lookups are the same
+         g_list_find_custom() call with the same cast. */
       gboolean ignored
           = (g_list_find_custom (
                  ignored_player_names, name,
@@ -1156,18 +1218,20 @@ name_is_selected (const gchar *name)
 }
 
 static int
-handle_version_flag ()
+handle_version_flag (void)
 {
   g_print ("v%s\n", PLAYERCTL_VERSION_S);
   return 0;
 }
 
 static int
-handle_list_all_flag ()
+handle_list_all_flag (void)
 {
   GError *tmp_error = NULL;
   GList *player_names_list = playerctl_list_players (&tmp_error);
 
+  /* XXX: SUSPICIOUS: the list is sorted before tmp_error is checked, and
+     the error path (L1241) never frees tmp_error. */
   player_names_list = g_list_sort_with_data (
       player_names_list, player_name_compare_func, (gpointer)player_names);
 
@@ -1185,6 +1249,8 @@ handle_list_all_flag ()
       if (name_is_selected (name->instance))
         {
           one_selected = TRUE;
+          /* STYLE: printf here, g_print at L1224 (also L110, L1705); pick
+             one. */
           printf ("%s\n", name->instance);
         }
     }
@@ -1252,6 +1318,8 @@ managed_players_execute_command (GError **error)
 }
 
 static void
+/* STYLE: the parameter "manager" shadows the file-scope variable of the
+   same name (also L1409, L1438). */
 name_appeared_callback (PlayerctlPlayerManager *manager,
                         PlayerctlPlayerName *name, gpointer *data)
 {
@@ -1285,6 +1353,9 @@ name_appeared_callback (PlayerctlPlayerManager *manager,
   PlayerctlPlayer *player = playerctl_player_new_from_name (name, &error);
   if (error != NULL)
     {
+      /* XXX: DRY: "exit_status = 1; g_printerr; g_clear_error;
+         g_main_loop_quit" is written five times (L976, L1360, L1417, L1429,
+         L1446). */
       exit_status = 1;
       g_printerr ("Could not connect to player: %s\n", error->message);
       g_clear_error (&error);
@@ -1301,6 +1372,11 @@ init_managed_player (PlayerctlPlayer *player,
                      const struct player_command *player_cmd)
 {
   assert (player_cmd->follow_signal != NULL);
+  /* XXX: SUSPICIOUS: managed_player_properties_callback (player, data) is
+     connected to signals that pass extra arguments (seeked, volume,
+     metadata, ...), so "data" receives the first signal argument, not
+     playercmd_args. It works on common ABIs, but it is a call through the
+     wrong function type. */
   g_signal_connect (G_OBJECT (player), player_cmd->follow_signal,
                     G_CALLBACK (managed_player_properties_callback),
                     playercmd_args);
@@ -1309,13 +1385,13 @@ init_managed_player (PlayerctlPlayer *player,
     {
       for (gsize i = 0; i < LENGTH (player_commands); ++i)
         {
-          const struct player_command cmd = player_commands[i];
-          if (&cmd != player_cmd && cmd.follow_signal != NULL
-              && g_strcmp0 (cmd.name, "metadata") != 0
-              && playerctl_formatter_contains_key (formatter, cmd.name))
+          const struct player_command *cmd = &player_commands[i];
+          if (cmd != player_cmd && cmd->follow_signal != NULL
+              && g_strcmp0 (cmd->name, "metadata") != 0
+              && playerctl_formatter_contains_key (formatter, cmd->name))
             {
               g_signal_connect (
-                  G_OBJECT (player), cmd.follow_signal,
+                  G_OBJECT (player), cmd->follow_signal,
                   G_CALLBACK (managed_player_properties_callback),
                   playercmd_args);
             }
@@ -1394,6 +1470,9 @@ player_name_rank (const GList *names, const gchar *player)
   return rank == INT_MAX ? any_rank : rank;
 }
 
+/* STYLE: these three functions (also L1492, L1523) have external linkage
+   only so that playerctl-player-private.h can declare them for this file;
+   make them static and drop the declarations. */
 gint
 player_name_string_compare_func (gconstpointer a, gconstpointer b,
                                  gpointer user_data)
@@ -1450,6 +1529,7 @@ player_compare_func (gconstpointer a, gconstpointer b, gpointer user_data)
   return result;
 }
 
+/* XXX: KISS: main() is about 240 lines with seven goto end jumps (lizard). */
 int
 main (int argc, char *argv[])
 {
@@ -1527,6 +1607,9 @@ main (int argc, char *argv[])
       available_players, player_name_exact_first_compare_func,
       (gpointer)player_names);
 
+  /* XXX: KISS: this three part condition mixes a stack temporary, casts to
+     GCompareFunc and nested calls; extract a helper such as
+     should_autostart_playerctld(). */
   PlayerctlPlayerName playerctld_name = {
     .instance = "playerctld",
     .source = PLAYERCTL_SOURCE_DBUS_SESSION,
@@ -1545,6 +1628,9 @@ main (int argc, char *argv[])
       g_debug ("%s", "playerctld was selected explicitly, it may autostart");
       available_players = g_list_append (
           available_players,
+          /* FIXME: leak: the appended PlayerctlPlayerName is never freed;
+             g_list_free (available_players) at L1778 frees only the list
+             nodes. */
           pctl_player_name_new ("playerctld", PLAYERCTL_SOURCE_DBUS_SESSION));
       available_players = g_list_sort_with_data (
           available_players, player_name_exact_first_compare_func,
@@ -1568,6 +1654,10 @@ main (int argc, char *argv[])
       if (!follow && player_cmd->lazy)
         {
           player
+              /* XXX: DRY: builds the player by property name to pass load-
+                 properties=FALSE and so bypasses
+                 playerctl_player_new_from_name() (L1673); the public API
+                 has no constructor for it. */
               = g_initable_new (PLAYERCTL_TYPE_PLAYER, NULL, &error,
                                 "player-instance", name->instance, "source",
                                 name->source, "load-properties", FALSE, NULL);
@@ -1663,6 +1753,9 @@ main (int argc, char *argv[])
       if (formatter != NULL
           && playerctl_formatter_contains_key (formatter, "position"))
         {
+          /* XXX: SUSPICIOUS: magic 1000 ms tick; and main_loop is only
+             created at L1768, after the handlers that call g_main_loop_quit
+             (main_loop) (L976, L1363, L1420) were connected. */
           g_timeout_add (1000, playercmd_tick_callback, NULL);
         }
 
@@ -1672,6 +1765,9 @@ main (int argc, char *argv[])
     }
 
 end:
+  /* XXX: dead code: g_list_free (NULL) is fine, so the first if is
+     redundant. The manager guard below is needed with g_object_unref ();
+     g_clear_object (&manager) would drop it. */
   if (available_players != NULL)
     {
       g_list_free (available_players);
@@ -1686,5 +1782,6 @@ end:
   g_list_free_full (player_names, g_free);
   g_list_free_full (ignored_player_names, g_free);
 
+  /* STYLE: exit (exit_status) at the end of main instead of return. */
   exit (exit_status);
 }
