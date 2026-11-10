@@ -24,6 +24,8 @@
 #include <stdio.h>
 
 #include "playerctl-common.h"
+#include "playerctl-daemon-introspection.h"
+#include "playerctl-daemon-playerctld-introspection.h"
 
 /* XXX: DRY: MPRIS_PATH and the interface name macros repeat those of
    playerctl-player.c; share them in playerctl-common.h. */
@@ -717,191 +719,14 @@ context_unshift_active_player (struct PlayerctldContext *ctx)
   return current;
 }
 
-#define LEGACY_DEPRECATED_ANNOTATION                                          \
-  "    <annotation name=\"org.freedesktop.DBus.Deprecated\" "                 \
-  "value=\"true\"/>\n"
+/* playerctld_introspection_xml: the playerctld interface under its own and the
+   deprecated legacy name, generated at build time from
+   data/org._5mdt.playerctld.xml by playerctl/gen-introspection-header.py. */
 
-#define PLAYERCTLD_INTERFACE_XML(name, annotation)                            \
-  "  <interface name=\"" name "\">\n" annotation                              \
-  "    <method name=\"Shift\">\n"                                             \
-  "        <arg name=\"Player\" type=\"s\" direction=\"out\"/>\n"             \
-  "    </method>\n"                                                           \
-  "    <method name=\"Unshift\">\n"                                           \
-  "        <arg name=\"Player\" type=\"s\" direction=\"out\"/>\n"             \
-  "    </method>\n"                                                           \
-  "    <property name=\"PlayerNames\" type=\"as\" access=\"read\"/>\n"        \
-  "    <signal name=\"ActivePlayerChangeBegin\">\n"                           \
-  "        <arg name=\"Name\" type=\"s\"/>\n"                                 \
-  "    </signal>\n"                                                           \
-  "    <signal name=\"ActivePlayerChangeEnd\">\n"                             \
-  "        <arg name=\"Name\" type=\"s\"/>\n"                                 \
-  "    </signal>\n"                                                           \
-  "  </interface>\n"
-
-static const char *playerctld_introspection_xml
-    = "<node>\n" PLAYERCTLD_INTERFACE_XML (PLAYERCTLD_INTERFACE, "")
-        PLAYERCTLD_INTERFACE_XML (PLAYERCTLD_INTERFACE_LEGACY,
-                                  LEGACY_DEPRECATED_ANNOTATION) "</node>\n";
-
-/* XXX: SUSPICIOUS: 155 lines of hand-written introspection XML next to
-   data/mpris-dbus-interface.xml; two descriptions of the same interfaces
-   drift apart (see L437). */
-static const char *mpris_introspection_xml
-    = "<node>\n"
-      "  <interface name=\"org.mpris.MediaPlayer2\">\n"
-      "    <method name=\"Raise\">\n"
-      "    </method>\n"
-      "    <method name=\"Quit\">\n"
-      "    </method>\n"
-      "    <property name=\"CanQuit\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"Fullscreen\" type=\"b\" access=\"readwrite\"/>\n"
-      "    <property name=\"CanSetFullscreen\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"CanRaise\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"HasTrackList\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"Identity\" type=\"s\" access=\"read\"/>\n"
-      "    <property name=\"DesktopEntry\" type=\"s\" access=\"read\"/>\n"
-      "    <property name=\"SupportedUriSchemes\" type=\"as\" "
-      "access=\"read\"/>\n"
-      "    <property name=\"SupportedMimeTypes\" type=\"as\" "
-      "access=\"read\"/>\n"
-      "  </interface>\n"
-      "  <interface name=\"org.mpris.MediaPlayer2.Player\">\n"
-      "    <method name=\"Next\">\n"
-      "    </method>\n"
-      "    <method name=\"Previous\">\n"
-      "    </method>\n"
-      "    <method name=\"Pause\">\n"
-      "    </method>\n"
-      "    <method name=\"PlayPause\">\n"
-      "    </method>\n"
-      "    <method name=\"Stop\">\n"
-      "    </method>\n"
-      "    <method name=\"Play\">\n"
-      "    </method>\n"
-      "    <method name=\"Seek\">\n"
-      "      <arg type=\"x\" name=\"Offset\" direction=\"in\"/>\n"
-      "    </method>\n"
-      "    <method name=\"SetPosition\">\n"
-      "      <arg type=\"o\" name=\"TrackId\" direction=\"in\"/>\n"
-      "      <arg type=\"x\" name=\"Offset\" direction=\"in\"/>\n"
-      "    </method>\n"
-      "    <method name=\"OpenUri\">\n"
-      "      <arg type=\"s\" name=\"Uri\" direction=\"in\"/>\n"
-      "    </method>\n"
-      "    <signal name=\"Seeked\">\n"
-      "      <arg type=\"x\" name=\"Position\" direction=\"out\"/>\n"
-      "    </signal>\n"
-      "    <property name=\"PlaybackStatus\" type=\"s\" access=\"read\"/>\n"
-      "    <property name=\"LoopStatus\" type=\"s\" access=\"readwrite\"/>\n"
-      "    <property name=\"Rate\" type=\"d\" access=\"readwrite\"/>\n"
-      "    <property name=\"Shuffle\" type=\"b\" access=\"readwrite\"/>\n"
-      "    <property name=\"Metadata\" type=\"a{sv}\" access=\"read\"/>\n"
-      "    <property name=\"Volume\" type=\"d\" access=\"readwrite\"/>\n"
-      "    <property name=\"Position\" type=\"x\" access=\"read\"/>\n"
-      "    <property name=\"MinimumRate\" type=\"d\" access=\"read\"/>\n"
-      "    <property name=\"MaximumRate\" type=\"d\" access=\"read\"/>\n"
-      "    <property name=\"CanGoNext\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"CanGoPrevious\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"CanPlay\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"CanPause\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"CanSeek\" type=\"b\" access=\"read\"/>\n"
-      "    <property name=\"CanControl\" type=\"b\" access=\"read\"/>\n"
-      "  </interface>\n"
-      "  <interface name=\"org.mpris.MediaPlayer2.TrackList\">\n"
-      "    <method name=\"GetTracksMetadata\">\n"
-      "      <arg direction=\"in\" name=\"TrackIds\" type=\"ao\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"out\" type=\"aa{sv}\" name=\"Metadata\">\n"
-      "      </arg>\n"
-      "    </method>\n"
-      "    <method name=\"AddTrack\">\n"
-      "      <arg direction=\"in\" type=\"s\" name=\"Uri\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"in\" type=\"o\" name=\"AfterTrack\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"in\" type=\"b\" name=\"SetAsCurrent\">\n"
-      "      </arg>\n"
-      "    </method>\n"
-      "    <method name=\"RemoveTrack\">\n"
-      "      <arg direction=\"in\" type=\"o\" name=\"TrackId\">\n"
-      "      </arg>\n"
-      "    </method>\n"
-      "    <method name=\"GoTo\">\n"
-      "      <arg direction=\"in\" type=\"o\" name=\"TrackId\">\n"
-      "      </arg>\n"
-      "    </method>\n"
-      "    <property name=\"Tracks\" type=\"ao\" access=\"read\">\n"
-      "      <annotation "
-      "name=\"org.freedesktop.DBus.Property.EmitsChangedSignal\" "
-      "value=\"invalidates\"/>\n"
-      "    </property>\n"
-      "    <property name=\"CanEditTracks\" type=\"b\" access=\"read\">\n"
-      "      <annotation "
-      "name=\"org.freedesktop.DBus.Property.EmitsChangedSignal\" "
-      "value=\"true\"/>\n"
-      "    </property>\n"
-      "    <signal name=\"TrackListReplaced\">\n"
-      "      <arg name=\"Tracks\" type=\"ao\">\n"
-      "      </arg>\n"
-      "      <arg name=\"CurrentTrack\" type=\"o\">\n"
-      "      </arg>\n"
-      "    </signal>\n"
-      "    <signal name=\"TrackAdded\">\n"
-      "      <arg type=\"a{sv}\" name=\"Metadata\">\n"
-      "      </arg>\n"
-      "      <arg type=\"o\" name=\"AfterTrack\">\n"
-      "      </arg>\n"
-      "    </signal>\n"
-      "    <signal name=\"TrackRemoved\">\n"
-      "      <arg type=\"o\" name=\"TrackId\">\n"
-      "      </arg>\n"
-      "    </signal>\n"
-      "    <signal name=\"TrackMetadataChanged\">\n"
-      "      <arg type=\"o\" name=\"TrackId\">\n"
-      "      </arg>\n"
-      "      <arg type=\"a{sv}\" name=\"Metadata\">\n"
-      "      </arg>\n"
-      "    </signal>\n"
-      "  </interface>\n"
-      "  <interface name=\"org.mpris.MediaPlayer2.Playlists\">\n"
-      "    <method name=\"ActivatePlaylist\">\n"
-      "      <arg direction=\"in\" name=\"PlaylistId\" type=\"o\">\n"
-      "      </arg>\n"
-      "    </method>\n"
-      "    <method name=\"GetPlaylists\">\n"
-      "      <arg direction=\"in\" name=\"Index\" type=\"u\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"in\" name=\"MaxCount\" type=\"u\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"in\" name=\"Order\" type=\"s\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"in\" name=\"ReverseOrder\" type=\"b\">\n"
-      "      </arg>\n"
-      "      <arg direction=\"out\" name=\"Playlists\" type=\"a(oss)\">\n"
-      "      </arg>\n"
-      "    </method>\n"
-      "    <property name=\"PlaylistCount\" type=\"u\" access=\"read\">\n"
-      "      <annotation "
-      "name=\"org.freedesktop.DBus.Property.EmitsChangedSignal\" "
-      "value=\"true\"/>\n"
-      "    </property>\n"
-      "    <property name=\"Orderings\" type=\"as\" access=\"read\">\n"
-      "      <annotation "
-      "name=\"org.freedesktop.DBus.Property.EmitsChangedSignal\" "
-      "value=\"true\"/>\n"
-      "    </property>\n"
-      "    <property name=\"ActivePlaylist\" type=\"(b(oss))\" "
-      "access=\"read\">\n"
-      "      <annotation "
-      "name=\"org.freedesktop.DBus.Property.EmitsChangedSignal\" "
-      "value=\"true\"/>\n"
-      "    </property>\n"
-      "    <signal name=\"PlaylistChanged\">\n"
-      "      <arg name=\"Playlist\" type=\"(oss)\">\n"
-      "      </arg>\n"
-      "    </signal>\n"
-      "  </interface>\n"
-      "</node>\n";
+/* mpris_introspection_xml: the MPRIS interfaces playerctld announces, generated
+   at build time from data/mpris-dbus-interface.xml (the vendored MPRIS
+   specification, see doc/specs/) by playerctl/gen-introspection-header.py.
+   Methods that pass file descriptors are excluded in playerctl/meson.build. */
 
 static void
 proxy_method_call_async_callback (GObject *source_object, GAsyncResult *res,
@@ -1882,8 +1707,17 @@ main (int argc, char *argv[])
     }
   ctx.playerctld_interface_info = g_dbus_node_info_lookup_interface (
       playerctld_introspection_data, PLAYERCTLD_INTERFACE);
+  if (ctx.playerctld_interface_info == NULL)
+    {
+      g_error ("Missing introspection data for the playerctld interface");
+    }
   ctx.playerctld_legacy_interface_info = g_dbus_node_info_lookup_interface (
       playerctld_introspection_data, PLAYERCTLD_INTERFACE_LEGACY);
+  if (ctx.playerctld_legacy_interface_info == NULL)
+    {
+      g_error ("Missing introspection data for the legacy playerctld "
+               "interface");
+    }
 
   // Get all names of players (names that start with "org.mpris.MediaPlayer2.")
   // then fetch their properties on all supported interfaces

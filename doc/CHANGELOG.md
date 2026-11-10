@@ -1,6 +1,20 @@
 # Changelog
 
+## Version 2.7.0
+
+Current MPRIS spec differs a bit from vendored in repo, so the main goal of this version - is to became fully spec compliant. The second goal of this release is code deduplication, removal or quirky solutions and general readability improvements
+
+### Specifications
+- The specifications playerctl relies on are vendored in `doc/specs/` with links to their sources: MPRIS (upstream master `84d2ccff`, spec 2.3), the D-Bus specification (0.43) and the MPRIS metadata guidelines. `make vendor-specs` re-downloads them at the pinned revisions
+- `data/mpris-dbus-interface.xml` is generated from the vendored MPRIS files (`scripts/gen-mpris-interface.py`) instead of being hand-trimmed. It gains `Fullscreen`, `CanSetFullscreen`, the optional `GetArtworkFd` method and the `EmitsChangedSignal` annotations, and loses the unused `org.freedesktop.DBus.*` interfaces
+- playerctld: the MPRIS introspection data is generated at build time from `data/mpris-dbus-interface.xml` (`playerctl/gen-introspection-header.py`) instead of being typed by hand, so it cannot drift from the specification. It names the `SetPosition` argument `Position` and carries the `EmitsChangedSignal` and `property.optional` annotations of the specification
+- playerctld: its own D-Bus interface lives in `data/org._5mdt.playerctld.xml`, which is also generated into the introspection data (the deprecated `com.github.altdesktop.playerctld` name is a marked copy) and installed to `share/dbus-1/interfaces`. A missing interface now stops playerctld with a message
+- Tests: the mock players follow the MPRIS specification (they gained the missing required members), and the bus configuration of a test moved to `test/data/`
+- Not done yet: forwarding `Player.GetArtworkFd` (it passes a file descriptor) through playerctld
+
 ## Version 2.6.0
+
+This release aims to greenify all existing tests and fix crashes covered with them. No new features or significant logic changes are included
 
 ### Bugfixes
 - Library: `print_metadata_prop` returns an object path such as `mpris:trackid` as plain text (`/track/1`), not quoted (`'/track/1'`)

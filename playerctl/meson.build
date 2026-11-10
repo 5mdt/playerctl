@@ -80,9 +80,42 @@ playerctl_executable = executable(
   install: true,
 )
 
+# The introspection data playerctld announces is generated from the interface
+# XML files in data/, so the code and the specifications cannot drift apart.
+# MPRIS: playerctld does not forward methods that pass file descriptors, so
+# GetArtworkFd is left out. Its own interface is also announced under the
+# deprecated name of earlier versions.
+gen_introspection = files('gen-introspection-header.py')
+python = find_program('python3')
+daemon_introspection = [
+  custom_target(
+    'playerctl-daemon-introspection',
+    input: files('../data/mpris-dbus-interface.xml'),
+    output: 'playerctl-daemon-introspection.h',
+    command: [
+      python, gen_introspection, '@INPUT@', '@OUTPUT@',
+      '--variable', 'mpris_introspection_xml',
+      '--exclude', 'org.mpris.MediaPlayer2.Player.GetArtworkFd',
+    ],
+    depend_files: gen_introspection,
+  ),
+  custom_target(
+    'playerctl-daemon-playerctld-introspection',
+    input: files('../data/org._5mdt.playerctld.xml'),
+    output: 'playerctl-daemon-playerctld-introspection.h',
+    command: [
+      python, gen_introspection, '@INPUT@', '@OUTPUT@',
+      '--variable', 'playerctld_introspection_xml',
+      '--deprecated-alias',
+      'org._5mdt.playerctld=com.github.altdesktop.playerctld',
+    ],
+    depend_files: gen_introspection,
+  ),
+]
+
 playerctld_executable = executable(
   'playerctld',
-  'playerctl-daemon.c', enums,
+  'playerctl-daemon.c', enums, daemon_introspection,
   dependencies: deps,
   include_directories: configuration_inc,
   install: true,

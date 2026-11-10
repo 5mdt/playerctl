@@ -7,9 +7,16 @@ The test bus is a plain `dbus-daemon --session`, which picks up the installed
 
 import asyncio
 import os
+from pathlib import Path
 
 from ..helpers.daemon import PLAYERCTLD_NAME
 from ..helpers.mpris import name_owner_pid, wait_for_name
+
+NO_ACTIVATION_CONFIG = (
+    Path(__file__).resolve().parents[1]
+    / 'data'
+    / 'session-bus-no-activation.conf'
+)
 
 
 async def run_daemon_command(bus_address):
@@ -77,20 +84,11 @@ async def test_activated_daemon_serves_requests(
     os.kill(await name_owner_pid(bus_address, PLAYERCTLD_NAME), 15)
 
 
-async def test_daemon_command_without_activation_support(tmp_path):
+async def test_daemon_command_without_activation_support():
     # a bus that has no service directory cannot activate playerctld
-    config = tmp_path / 'bus.conf'
-    config.write_text(
-        '<busconfig><type>session</type>'
-        '<listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>'
-        '<policy context="default"><allow send_destination="*"/>'
-        '<allow receive_type="method_call"/><allow receive_type="method_return"/>'
-        '<allow receive_type="error"/><allow receive_type="signal"/>'
-        '<allow own="*"/></policy></busconfig>'
-    )
     bus = await asyncio.create_subprocess_exec(
         'dbus-daemon',
-        f'--config-file={config}',
+        f'--config-file={NO_ACTIVATION_CONFIG}',
         '--nofork',
         '--print-address=1',
         stdout=asyncio.subprocess.PIPE,

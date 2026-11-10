@@ -1,4 +1,4 @@
-.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all pre-commit \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates vendor-specs help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all pre-commit \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -380,6 +380,9 @@ contributors-check: ## fail if CONTRIBUTORS.md misses an author of C code
 
 contributors-duplicates: ## list contributor identities that look like the same person (fix with .mailmap)
 	python3 scripts/update-contributors.py --duplicates
+
+vendor-specs: ## re-download the vendored specs (MPRIS, D-Bus, metadata) at their pinned revisions into doc/specs/ and regenerate data/mpris-dbus-interface.xml
+	scripts/vendor-specs.sh
 
 # Recipe steps, not prerequisites: they must run in this order (formatters and
 # generators change files before the checks look at them), also under make -j.
