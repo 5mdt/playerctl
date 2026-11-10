@@ -12,8 +12,14 @@ common_sources = [
 c_test_includes = include_directories('../..')
 
 # enums[1] is the generated enum-types header: listed so it exists before compiling.
+formatter_sources = [
+  src / 'playerctl-formatter.c',
+  src / 'playerctl-formatter-parser.c',
+  src / 'playerctl-formatter-helpers.c',
+]
+
 c_tests = {
-  'test_formatter': common_sources,
+  'test_formatter': common_sources + formatter_sources,
   'test_common': common_sources,
   'test_player_name': [src / 'playerctl-player-name.c'],
 }

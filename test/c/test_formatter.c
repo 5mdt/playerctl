@@ -2,14 +2,16 @@
    columns. Also, the glib unit tests cover only common, formatter and
    player-name; cli, daemon, player and manager are tested through the
    Python suite only. */
-/* Unit tests for playerctl-formatter.c. The implementation is included so the
+/* Unit tests for the formatter. The implementation files are compiled in and
+ * playerctl-formatter-private.h exposes the internals so the
  * static tokenizer / template functions can be called directly. */
 
 #include <glib.h>
 #include <math.h>
 #include <stdint.h>
 
-#include "playerctl/playerctl-formatter.c"
+#include "playerctl/playerctl-formatter.h"
+#include "playerctl/playerctl-formatter-private.h"
 
 /* ---- helpers ---- */
 

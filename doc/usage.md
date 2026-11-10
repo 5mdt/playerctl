@@ -102,22 +102,22 @@ playerctl metadata --format "Time remaining: {{ duration(mpris:length - position
 playerctl metadata --format "Volume: {{ round(volume * 100) }}"
 ```
 
-| Function        | Argument         | Description                                                       |
-|-----------------|------------------|-------------------------------------------------------------------|
-| `lc`            | string           | Convert the string to lowercase.                                  |
-| `uc`            | string           | Convert the string to uppercase.                                  |
-| `duration`      | int              | Convert the duration to [h:]mm:ss format (a negative one gets a `-`). |
-| `markup_escape` | string           | Escape XML markup characters in the string.                       |
-| `json_escape`   | string           | Escape the string for use inside a JSON string (add the quotes yourself). |
-| `default`       | any, any         | Print the first value if it is present, or else print the second. |
-| `emoji`         | status, loop, shuffle or volume | Try to convert the variable to an emoji representation. |
-| `trunc`         | string, int      | Truncate string to a maximum length.                              |
-| `round`         | number           | Round to the nearest integer (halves away from zero).             |
-| `int`           | number           | Drop the fractional part (round toward zero).                     |
-| `replace`       | string, string, string | Replace every occurrence of the second string with the third. |
-| `join`          | list, string     | Join a list such as `artist` with a separator.                    |
-| `pad`           | string, int      | Pad with spaces to a width; a negative width aligns right.        |
-| `uri_decode`    | string           | Decode `%XX` escapes, e.g. in `xesam:url`.                        |
+| Function        | Argument                        | Description                                                               |
+|-----------------|---------------------------------|---------------------------------------------------------------------------|
+| `lc`            | string                          | Convert the string to lowercase.                                          |
+| `uc`            | string                          | Convert the string to uppercase.                                          |
+| `duration`      | int                             | Convert the duration to [h:]mm:ss format (a negative one gets a `-`).     |
+| `markup_escape` | string                          | Escape XML markup characters in the string.                               |
+| `json_escape`   | string                          | Escape the string for use inside a JSON string (add the quotes yourself). |
+| `default`       | any, any                        | Print the first value if it is present, or else print the second.         |
+| `emoji`         | status, loop, shuffle or volume | Try to convert the variable to an emoji representation.                   |
+| `trunc`         | string, int                     | Truncate string to a maximum length.                                      |
+| `round`         | number                          | Round to the nearest integer (halves away from zero).                     |
+| `int`           | number                          | Drop the fractional part (round toward zero).                             |
+| `replace`       | string, string, string          | Replace every occurrence of the second string with the third.             |
+| `join`          | list, string                    | Join a list such as `artist` with a separator.                            |
+| `pad`           | string, int                     | Pad with spaces to a width; a negative width aligns right.                |
+| `uri_decode`    | string                          | Decode `%XX` escapes, e.g. in `xesam:url`.                                |
 
 | Variable         | Description                                       |
 |------------------|---------------------------------------------------|

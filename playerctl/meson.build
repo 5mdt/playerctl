@@ -23,7 +23,10 @@ headers = [
 playerctl_sources = [
   'playerctl-player-name.c',
   'playerctl-formatter.c',
+  'playerctl-formatter-parser.c',
+  'playerctl-formatter-helpers.c',
   'playerctl-player.c',
+  'playerctl-player-commands.c',
   'playerctl-common.c',
   'playerctl-player-manager.c',
   playerctl_generated,
@@ -74,7 +77,9 @@ playerctl_shared_link = declare_dependency(
 
 playerctl_executable = executable(
   'playerctl',
-  'playerctl-cli.c', enums,
+  'playerctl-cli.c',
+  'playerctl-cli-util.c',
+  enums,
   dependencies: playerctl_shared_link,
   include_directories: configuration_inc,
   install: true,
@@ -115,7 +120,11 @@ daemon_introspection = [
 
 playerctld_executable = executable(
   'playerctld',
-  'playerctl-daemon.c', enums, daemon_introspection,
+  'playerctl-daemon.c',
+  'playerctl-daemon-player.c',
+  'playerctl-daemon-context.c',
+  'playerctl-daemon-bus.c',
+  enums, daemon_introspection,
   dependencies: deps,
   include_directories: configuration_inc,
   install: true,
@@ -145,6 +154,7 @@ if get_option('introspection')
       'playerctl-player-manager.c',
       'playerctl-player-manager.h',
       'playerctl-player.c',
+      'playerctl-player-commands.c',
       'playerctl-player.h',
     ],
     extra_args : [ '-DPLAYERCTL_COMPILATION' ],
