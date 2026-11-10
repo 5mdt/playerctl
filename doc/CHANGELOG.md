@@ -12,7 +12,12 @@ Current MPRIS spec differs a bit from vendored in repo, so the main goal of this
 - Tests: the mock players follow the MPRIS specification (they gained the missing required members), and the bus configuration of a test moved to `test/data/`
 - Not done yet: forwarding `Player.GetArtworkFd` (it passes a file descriptor) through playerctld
 
+### Features
+- Template helpers: `json_escape()`, `round()`, `int()`, `replace()`, `join()`, `pad()` and `uri_decode()`; `emoji()` also converts `loop` and `shuffle`; `trunc()` takes an integer length
+- The argument count of a template function is checked once, from a table, before the function runs; the messages are unchanged
+
 ### Bugfixes
+- `duration()` of a negative time prints `-0:05` instead of `0:-5`
 - `playerctl --list-all` frees the error and no longer sorts the players before it checks that listing them worked
 - `playerctl` frees the error after `Could not execute command`, `Could not connect to player` and `Connection to player failed`, and the `playerctld` entry it adds to the list of players
 - `--follow`: the callbacks connected to the player signals (`seeked`, `volume`, `metadata`, ...) now have the signature of their signal, so the user data is no longer read from the first signal argument

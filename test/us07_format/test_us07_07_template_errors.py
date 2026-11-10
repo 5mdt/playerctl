@@ -57,6 +57,13 @@ async def test_unknown_function_message(playerctl, format_player):
         '{{uc(title, title)}}',
         '{{default(title)}}',
         '{{trunc(title)}}',
+        '{{json_escape(title, title)}}',
+        '{{round()}}',
+        '{{round(1, 2)}}',
+        '{{replace(title, "a")}}',
+        '{{join(artist)}}',
+        '{{pad(title)}}',
+        '{{uri_decode(title, title)}}',
     ],
 )
 async def test_wrong_argument_count(template, playerctl, format_player):

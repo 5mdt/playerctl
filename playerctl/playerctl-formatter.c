@@ -665,23 +665,53 @@ tokenize_format (const char *format, GError **error)
   return tokens;
 }
 
-/* XXX: DRY: the nargs/NULL preamble repeats in all seven helpers; "token" is
-   unused in most. */
+/* The argument count of every template function is checked once in
+   expand_token () against template_functions[]; a helper can rely on it. */
+
+static gboolean
+is_valid_numeric_type (GVariant *value)
+{
+  // This is all the types we know about for numeric operations. May be
+  // expanded at a later time. MPRIS only uses INT64 and DOUBLE as numeric
+  // types. Formatter constants are always DOUBLE. All other types are for
+  // player workarounds.
+  if (value == NULL)
+    {
+      return FALSE;
+    }
+
+  return g_variant_is_of_type (value, G_VARIANT_TYPE_INT64)
+         || g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64)
+         || g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE);
+}
+
+static gdouble
+get_double_value (GVariant *value)
+{
+  // Keep this in sync with above is_valid_numeric_type()
+
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_INT64))
+    {
+      return (gdouble)g_variant_get_int64 (value);
+    }
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64))
+    {
+      return (gdouble)g_variant_get_uint64 (value);
+    }
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
+    {
+      return g_variant_get_double (value);
+    }
+
+  assert (FALSE && "not reached");
+  return 0.0;
+}
 
 /* Prints the single argument and returns it transformed by "transform". */
 static GVariant *
-transform_single_argument (const gchar *name,
-                           gchar *(*transform) (const gchar *, gssize),
-                           GVariant **args, int nargs, GError **error)
+transform_single_argument (gchar *(*transform) (const gchar *, gssize),
+                           GVariant **args)
 {
-  if (nargs != 1)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function %s takes exactly one argument (got %d)", name,
-                   nargs);
-      return NULL;
-    }
-
   GVariant *value = args[0];
   if (value == NULL)
     {
@@ -699,36 +729,89 @@ transform_single_argument (const gchar *name,
 static GVariant *
 helperfn_lc (struct token *token, GVariant **args, int nargs, GError **error)
 {
-  return transform_single_argument ("lc", g_utf8_strdown, args, nargs, error);
+  return transform_single_argument (g_utf8_strdown, args);
 }
 
 static GVariant *
 helperfn_uc (struct token *token, GVariant **args, int nargs, GError **error)
 {
-  return transform_single_argument ("uc", g_utf8_strup, args, nargs, error);
+  return transform_single_argument (g_utf8_strup, args);
 }
 
-// Formats a duration in microseconds as [h:]mm:ss.
+/* Escapes the text for the inside of a JSON string; the quotes around it are
+   left to the template. */
+static gchar *
+json_escape_text (const gchar *text, gssize length)
+{
+  GString *escaped = g_string_new ("");
+  for (const gchar *c = text; *c != '\0'; ++c)
+    {
+      switch (*c)
+        {
+        case '"':
+          g_string_append (escaped, "\\\"");
+          break;
+        case '\\':
+          g_string_append (escaped, "\\\\");
+          break;
+        case '\b':
+          g_string_append (escaped, "\\b");
+          break;
+        case '\f':
+          g_string_append (escaped, "\\f");
+          break;
+        case '\n':
+          g_string_append (escaped, "\\n");
+          break;
+        case '\r':
+          g_string_append (escaped, "\\r");
+          break;
+        case '\t':
+          g_string_append (escaped, "\\t");
+          break;
+        default:
+          if ((guchar)*c < 0x20)
+            {
+              g_string_append_printf (escaped, "\\u%04x", (guchar)*c);
+            }
+          else
+            {
+              g_string_append_c (escaped, *c);
+            }
+        }
+    }
+  return g_string_free (escaped, FALSE);
+}
+
+static GVariant *
+helperfn_json_escape (struct token *token, GVariant **args, int nargs,
+                      GError **error)
+{
+  return transform_single_argument (json_escape_text, args);
+}
+
+// Formats a duration in microseconds as [-][h:]mm:ss.
 static GVariant *
 format_duration (gint64 duration)
 {
-  /* XXX: SUSPICIOUS: a negative duration prints something like "0:-5",
-     because the modulo of a negative number keeps its sign. */
-  gint64 seconds = (duration / 1000000) % 60;
-  gint64 minutes = (duration / 1000000 / 60) % 60;
-  gint64 hours = (duration / 1000000 / 60 / 60);
+  // the magnitude as unsigned, so that G_MININT64 does not overflow
+  guint64 magnitude = duration < 0 ? 0 - (guint64)duration : (guint64)duration;
+  guint64 total_seconds = magnitude / 1000000;
+  guint64 seconds = total_seconds % 60;
+  guint64 minutes = (total_seconds / 60) % 60;
+  guint64 hours = total_seconds / 60 / 60;
 
-  GString *formatted = g_string_new ("");
+  GString *formatted = g_string_new (duration < 0 ? "-" : "");
 
   if (hours != 0)
     {
       g_string_append_printf (formatted,
-                              "%" PRId64 ":%02" PRId64 ":%02" PRId64, hours,
+                              "%" PRIu64 ":%02" PRIu64 ":%02" PRIu64, hours,
                               minutes, seconds);
     }
   else
     {
-      g_string_append_printf (formatted, "%" PRId64 ":%02" PRId64, minutes,
+      g_string_append_printf (formatted, "%" PRIu64 ":%02" PRIu64, minutes,
                               seconds);
     }
 
@@ -751,14 +834,6 @@ static GVariant *
 helperfn_duration (struct token *token, GVariant **args, int nargs,
                    GError **error)
 {
-  if (nargs != 1)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function duration takes exactly one argument (got %d)",
-                   nargs);
-      return NULL;
-    }
-
   GVariant *value = args[0];
   if (value == NULL)
     {
@@ -829,22 +904,13 @@ static GVariant *
 helperfn_markup_escape (struct token *token, GVariant **args, int nargs,
                         GError **error)
 {
-  return transform_single_argument ("markup_escape", g_markup_escape_text,
-                                    args, nargs, error);
+  return transform_single_argument (g_markup_escape_text, args);
 }
 
 static GVariant *
 helperfn_default (struct token *token, GVariant **args, int nargs,
                   GError **error)
 {
-  if (nargs != 2)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function default takes exactly two arguments (got %d)",
-                   nargs);
-      return NULL;
-    }
-
   if (args[0] == NULL && args[1] == NULL)
     {
       return NULL;
@@ -877,14 +943,6 @@ static GVariant *
 helperfn_emoji (struct token *token, GVariant **args, int nargs,
                 GError **error)
 {
-  if (nargs != 1)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function emoji takes exactly one argument (got %d)",
-                   nargs);
-      return NULL;
-    }
-
   GVariant *value = args[0];
   if (value == NULL)
     {
@@ -920,6 +978,29 @@ helperfn_emoji (struct token *token, GVariant **args, int nargs,
             }
         }
     }
+  else if (g_strcmp0 (key, "loop") == 0
+           && g_variant_is_of_type (value, G_VARIANT_TYPE_STRING))
+    {
+      PlayerctlLoopStatus loop = 0;
+      if (pctl_parse_loop_status (g_variant_get_string (value, NULL), &loop))
+        {
+          switch (loop)
+            {
+            case PLAYERCTL_LOOP_STATUS_TRACK:
+              return g_variant_new ("s", "🔂");
+            case PLAYERCTL_LOOP_STATUS_PLAYLIST:
+              return g_variant_new ("s", "🔁");
+            case PLAYERCTL_LOOP_STATUS_NONE:
+              return g_variant_new ("s", "➡️");
+            }
+        }
+    }
+  else if (g_strcmp0 (key, "shuffle") == 0
+           && g_variant_is_of_type (value, G_VARIANT_TYPE_BOOLEAN))
+    {
+      return g_variant_new ("s",
+                            g_variant_get_boolean (value) ? "🔀" : "➡️");
+    }
   else if (g_strcmp0 (key, "volume") == 0
            && g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
     {
@@ -943,14 +1024,6 @@ static GVariant *
 helperfn_trunc (struct token *token, GVariant **args, int nargs,
                 GError **error)
 {
-  if (nargs != 2)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function trunc takes exactly two arguments (got %d)",
-                   nargs);
-      return NULL;
-    }
-
   GVariant *value = args[0];
   GVariant *len = args[1];
   if (value == NULL || len == NULL)
@@ -958,17 +1031,14 @@ helperfn_trunc (struct token *token, GVariant **args, int nargs,
       return g_variant_new ("s", "");
     }
 
-  /* XXX: stale message: trunc says "can only be called with an int" but
-     checks for DOUBLE. */
-  if (!g_variant_type_equal (g_variant_get_type (len), G_VARIANT_TYPE_DOUBLE))
+  if (!is_valid_numeric_type (len))
     {
-      g_set_error (
-          error, playerctl_formatter_error_quark (), 1,
-          "function trunc's length parameter can only be called with an int");
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function trunc's length parameter must be a number");
       return NULL;
     }
 
-  gdouble limit = g_variant_get_double (len);
+  gdouble limit = get_double_value (len);
   if (!(limit >= 0.0))
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
@@ -996,51 +1066,239 @@ helperfn_trunc (struct token *token, GVariant **args, int nargs,
   return ret;
 }
 
-static gboolean
-is_valid_numeric_type (GVariant *value)
-{
-  // This is all the types we know about for numeric operations. May be
-  // expanded at a later time. MPRIS only uses INT64 and DOUBLE as numeric
-  // types. Formatter constants are always DOUBLE. All other types are for
-  // player workarounds.
-  if (value == NULL)
-    {
-      return FALSE;
-    }
-
-  return g_variant_is_of_type (value, G_VARIANT_TYPE_INT64)
-         || g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64)
-         || g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE);
-}
-
-static gdouble
-get_double_value (GVariant *value)
-{
-  // Keep this in sync with above is_valid_numeric_type()
-
-  if (g_variant_is_of_type (value, G_VARIANT_TYPE_INT64))
-    {
-      return (gdouble)g_variant_get_int64 (value);
-    }
-  if (g_variant_is_of_type (value, G_VARIANT_TYPE_UINT64))
-    {
-      return (gdouble)g_variant_get_uint64 (value);
-    }
-  if (g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
-    {
-      return g_variant_get_double (value);
-    }
-
-  assert (FALSE && "not reached");
-  return 0.0;
-}
-
 // Type name of an operand for error messages; operands of unset variables
 // are NULL.
 static const gchar *
 operand_type_name (GVariant *value)
 {
   return value != NULL ? g_variant_get_type_string (value) : "NULL";
+}
+
+/* Reads a numeric argument of a rounding helper as a double. Numeric strings
+   are accepted for the players that send numbers as strings. */
+static gboolean
+get_number_argument (const gchar *name, GVariant *value, gdouble *number,
+                     GError **error)
+{
+  if (is_valid_numeric_type (value))
+    {
+      *number = get_double_value (value);
+    }
+  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING))
+    {
+      gchar *end = NULL;
+      const gchar *str = g_variant_get_string (value, NULL);
+      *number = g_ascii_strtod (str, &end);
+      if (end == str || *end != '\0')
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "function %s can only be called on numbers", name);
+          return FALSE;
+        }
+    }
+  else
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function %s can only be called on numbers", name);
+      return FALSE;
+    }
+
+  // 2^63 is exactly representable; this also rejects NaN
+  if (!(*number >= -9223372036854775808.0 && *number < 9223372036854775808.0))
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function %s got a value that is out of range", name);
+      return FALSE;
+    }
+  return TRUE;
+}
+
+// Converts to int64, rounding to the nearest integer when "nearest" is set
+// (halves away from zero) and toward zero otherwise.
+static GVariant *
+to_integer (const gchar *name, GVariant **args, gboolean nearest,
+            GError **error)
+{
+  if (args[0] == NULL)
+    {
+      return g_variant_new ("s", "");
+    }
+
+  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64))
+    {
+      g_variant_ref (args[0]);
+      return args[0];
+    }
+
+  gdouble number;
+  if (!get_number_argument (name, args[0], &number, error))
+    {
+      return NULL;
+    }
+
+  gint64 result = (gint64)number;
+  gdouble fraction = number - (gdouble)result;
+  if (nearest && fraction >= 0.5)
+    {
+      result += 1;
+    }
+  else if (nearest && fraction <= -0.5)
+    {
+      result -= 1;
+    }
+  return g_variant_new ("x", result);
+}
+
+static GVariant *
+helperfn_round (struct token *token, GVariant **args, int nargs,
+                GError **error)
+{
+  return to_integer ("round", args, TRUE, error);
+}
+
+static GVariant *
+helperfn_int (struct token *token, GVariant **args, int nargs, GError **error)
+{
+  return to_integer ("int", args, FALSE, error);
+}
+
+static GVariant *
+helperfn_replace (struct token *token, GVariant **args, int nargs,
+                  GError **error)
+{
+  if (args[0] == NULL)
+    {
+      return g_variant_new ("s", "");
+    }
+
+  gchar *orig = pctl_print_gvariant (args[0]);
+  gchar *from = pctl_print_gvariant (args[1]);
+  gchar *to = pctl_print_gvariant (args[2]);
+  gchar *result = NULL;
+
+  if (from[0] == '\0')
+    {
+      result = g_strdup (orig);
+    }
+  else
+    {
+      gchar **parts = g_strsplit (orig, from, -1);
+      result = g_strjoinv (to, parts);
+      g_strfreev (parts);
+    }
+
+  GVariant *ret = g_variant_new ("s", result);
+  g_free (result);
+  g_free (orig);
+  g_free (from);
+  g_free (to);
+  return ret;
+}
+
+static GVariant *
+helperfn_join (struct token *token, GVariant **args, int nargs, GError **error)
+{
+  if (args[0] == NULL)
+    {
+      return g_variant_new ("s", "");
+    }
+
+  gchar *sep = pctl_print_gvariant (args[1]);
+  gchar *joined = NULL;
+
+  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_STRING_ARRAY))
+    {
+      gsize count;
+      const gchar **strv = g_variant_get_strv (args[0], &count);
+      // g_variant_get_strv () output is not NULL-terminated
+      gchar **terminated = g_new0 (gchar *, count + 1);
+      for (gsize i = 0; i < count; ++i)
+        {
+          terminated[i] = (gchar *)strv[i];
+        }
+      joined = g_strjoinv (sep, terminated);
+      g_free (terminated);
+      g_free (strv);
+    }
+  else
+    {
+      joined = pctl_print_gvariant (args[0]);
+    }
+
+  GVariant *ret = g_variant_new ("s", joined);
+  g_free (joined);
+  g_free (sep);
+  return ret;
+}
+
+static GVariant *
+helperfn_pad (struct token *token, GVariant **args, int nargs, GError **error)
+{
+  if (args[0] == NULL || args[1] == NULL)
+    {
+      return g_variant_new ("s", "");
+    }
+
+  if (!is_valid_numeric_type (args[1]))
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function pad's width parameter must be a number");
+      return NULL;
+    }
+
+  gdouble width = get_double_value (args[1]);
+  if (!(width > -1000000.0 && width < 1000000.0))
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function pad's width parameter is out of range");
+      return NULL;
+    }
+
+  gchar *orig = pctl_print_gvariant (args[0]);
+  glong len = g_utf8_strlen (orig, -1);
+  glong target = (glong)(width < 0 ? -width : width);
+  GString *padded = g_string_new ("");
+
+  // a negative width aligns right
+  if (width < 0)
+    {
+      for (glong i = len; i < target; ++i)
+        {
+          g_string_append_c (padded, ' ');
+        }
+    }
+  g_string_append (padded, orig);
+  if (width >= 0)
+    {
+      for (glong i = len; i < target; ++i)
+        {
+          g_string_append_c (padded, ' ');
+        }
+    }
+
+  gchar *padded_inner = g_string_free (padded, FALSE);
+  GVariant *ret = g_variant_new ("s", padded_inner);
+  g_free (padded_inner);
+  g_free (orig);
+  return ret;
+}
+
+static GVariant *
+helperfn_uri_decode (struct token *token, GVariant **args, int nargs,
+                     GError **error)
+{
+  if (args[0] == NULL)
+    {
+      return g_variant_new ("s", "");
+    }
+
+  gchar *orig = pctl_print_gvariant (args[0]);
+  gchar *decoded = g_uri_unescape_string (orig, NULL);
+  // an invalid escape sequence leaves the string as it was
+  GVariant *ret = g_variant_new ("s", decoded != NULL ? decoded : orig);
+  g_free (decoded);
+  g_free (orig);
+  return ret;
 }
 
 /* Describes an infix operator for infix_binary (). */
@@ -1264,26 +1522,63 @@ infixfn_div (struct token *token, GVariant **args, int nargs, GError **error)
   return infix_binary (&infix_div, args, nargs, error);
 }
 
-/* STYLE: global table with external linkage, defined together with its
-   struct tag; make it static const. */
 struct template_function
 {
   const gchar *name;
+  int min_args;
+  int max_args;
   GVariant *(*func) (struct token *token, GVariant **args, int nargs,
                      GError **error);
-} template_functions[] = {
-  { "lc", &helperfn_lc },
-  { "uc", &helperfn_uc },
-  { "duration", &helperfn_duration },
-  { "markup_escape", &helperfn_markup_escape },
-  { "default", &helperfn_default },
-  { "emoji", &helperfn_emoji },
-  { "trunc", &helperfn_trunc },
-  { INFIX_ADD, &infixfn_add },
-  { INFIX_SUB, &infixfn_sub },
-  { INFIX_MUL, &infixfn_mul },
-  { INFIX_DIV, &infixfn_div },
 };
+
+static const struct template_function template_functions[] = {
+  { "lc", 1, 1, &helperfn_lc },
+  { "uc", 1, 1, &helperfn_uc },
+  { "duration", 1, 1, &helperfn_duration },
+  { "markup_escape", 1, 1, &helperfn_markup_escape },
+  { "json_escape", 1, 1, &helperfn_json_escape },
+  { "default", 2, 2, &helperfn_default },
+  { "emoji", 1, 1, &helperfn_emoji },
+  { "trunc", 2, 2, &helperfn_trunc },
+  { "round", 1, 1, &helperfn_round },
+  { "int", 1, 1, &helperfn_int },
+  { "replace", 3, 3, &helperfn_replace },
+  { "join", 2, 2, &helperfn_join },
+  { "pad", 2, 2, &helperfn_pad },
+  { "uri_decode", 1, 1, &helperfn_uri_decode },
+  { INFIX_ADD, 1, 2, &infixfn_add },
+  { INFIX_SUB, 1, 2, &infixfn_sub },
+  { INFIX_MUL, 2, 2, &infixfn_mul },
+  { INFIX_DIV, 2, 2, &infixfn_div },
+};
+
+// Sets the error when the function does not take "nargs" arguments.
+static gboolean
+check_argument_count (const struct template_function *function, int nargs,
+                      GError **error)
+{
+  if (nargs >= function->min_args && nargs <= function->max_args)
+    {
+      return TRUE;
+    }
+
+  if (function->min_args == function->max_args)
+    {
+      static const gchar *const numbers[] = { "no", "one", "two", "three" };
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function %s takes exactly %s argument%s (got %d)",
+                   function->name, numbers[function->min_args],
+                   function->min_args == 1 ? "" : "s", nargs);
+    }
+  else
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "function %s takes between %d and %d arguments (got %d)",
+                   function->name, function->min_args, function->max_args,
+                   nargs);
+    }
+  return FALSE;
+}
 
 static GVariant *
 expand_token (struct token *token, GVariantDict *context, GError **error)
@@ -1331,6 +1626,11 @@ expand_token (struct token *token, GVariantDict *context, GError **error)
           {
             if (g_strcmp0 (template_functions[i].name, token->data) == 0)
               {
+                if (!check_argument_count (&template_functions[i], nargs,
+                                           error))
+                  {
+                    goto func_out;
+                  }
                 ret = template_functions[i].func (token, args, nargs,
                                                   &tmp_error);
                 if (tmp_error != NULL)

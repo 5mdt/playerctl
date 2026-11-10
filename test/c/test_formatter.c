@@ -89,10 +89,53 @@ static GVariant *call_fn(GVariant *(*fn)(struct token *, GVariant **, int, GErro
     return ret;
 }
 
+/* Calls a function through template_functions[], including the argument
+ * count check that expand_token() applies before the call. */
+static GVariant *call_named(const gchar *name, GError **err, int nargs, ...) {
+    GVariant *args[MAX_ARGS + 1];
+    va_list ap;
+    va_start(ap, nargs);
+    for (int i = 0; i < nargs; i++) {
+        GVariant *v = va_arg(ap, GVariant *);
+        args[i] = v != NULL ? g_variant_ref_sink(v) : NULL;
+    }
+    va_end(ap);
+
+    GVariant *ret = NULL;
+    for (gsize i = 0; i < G_N_ELEMENTS(template_functions); i++) {
+        if (g_strcmp0(template_functions[i].name, name) != 0) {
+            continue;
+        }
+        if (check_argument_count(&template_functions[i], nargs, err)) {
+            ret = template_functions[i].func(NULL, args, nargs, err);
+            if (ret != NULL) {
+                g_variant_take_ref(ret);
+            }
+        }
+        break;
+    }
+    for (int i = 0; i < nargs; i++) {
+        if (args[i] != NULL) {
+            g_variant_unref(args[i]);
+        }
+    }
+    return ret;
+}
+
+#define CALLN(name, err, ...) \
+    call_named(name, err, G_N_ELEMENTS(((GVariant *[]){__VA_ARGS__})), __VA_ARGS__)
+
 static void assert_string_result(GVariant *ret, const gchar *expected) {
     g_assert_nonnull(ret);
     g_assert_true(g_variant_is_of_type(ret, G_VARIANT_TYPE_STRING));
     g_assert_cmpstr(g_variant_get_string(ret, NULL), ==, expected);
+    g_variant_unref(ret);
+}
+
+static void assert_int_result(GVariant *ret, gint64 expected) {
+    g_assert_nonnull(ret);
+    g_assert_true(g_variant_is_of_type(ret, G_VARIANT_TYPE_INT64));
+    g_assert_cmpint(g_variant_get_int64(ret), ==, expected);
     g_variant_unref(ret);
 }
 
@@ -584,13 +627,13 @@ static void test_lc_uc(void) {
 
 static void test_lc_uc_wrong_nargs(void) {
     GError *err = NULL;
-    GVariant *r = CALL(helperfn_lc, NULL, &err, V_s("a"), V_s("b"));
+    GVariant *r = CALLN("lc", &err, V_s("a"), V_s("b"));
     assert_fails(r, err, "function lc takes exactly one argument*");
     err = NULL;
-    r = CALL(helperfn_uc, NULL, &err, V_s("a"), V_s("b"));
+    r = CALLN("uc", &err, V_s("a"), V_s("b"));
     assert_fails(r, err, "function uc takes exactly one argument*");
     err = NULL;
-    r = CALL(helperfn_markup_escape, NULL, &err, V_s("a"), V_s("b"));
+    r = CALLN("markup_escape", &err, V_s("a"), V_s("b"));
     assert_fails(r, err, "function markup_escape takes exactly one argument*");
 }
 
@@ -649,7 +692,7 @@ static void test_duration_wrong_nargs_message(void) {
     /* Intended: the message names the function that was misused (the code
      * copy-pasted "function uc"). */
     GError *err = NULL;
-    GVariant *r = CALL(helperfn_duration, NULL, &err, V_i64(1), V_i64(2));
+    GVariant *r = CALLN("duration", &err, V_i64(1), V_i64(2));
     assert_fails(r, err, "function duration takes exactly one argument*");
 }
 
@@ -695,14 +738,205 @@ static void test_trunc_negative_length(void) {
 
 static void test_trunc_errors(void) {
     GError *err = NULL;
-    GVariant *r = CALL(helperfn_trunc, NULL, &err, V_s("abc"));
+    GVariant *r = CALLN("trunc", &err, V_s("abc"));
     assert_fails(r, err, "function trunc takes exactly two arguments*");
     err = NULL;
-    r = CALL(helperfn_trunc, NULL, &err, V_s("abc"), V_i64(2));
-    assert_fails(r, err, "*length parameter*");
-    err = NULL;
+    /* an int length is as good as a double one */
+    assert_string_result(CALL(helperfn_trunc, NULL, &err, V_s("abc"), V_i64(2)), "ab…");
+    g_assert_no_error(err);
     r = CALL(helperfn_trunc, NULL, &err, V_s("abc"), V_s("2"));
-    assert_fails(r, err, "*length parameter*");
+    assert_fails(r, err, "*length parameter must be a number");
+}
+
+static void test_json_escape(void) {
+    GError *err = NULL;
+    assert_string_result(CALLN("json_escape", &err, V_s("plain")), "plain");
+    assert_string_result(CALLN("json_escape", &err, V_s("say \"hi\"")), "say \\\"hi\\\"");
+    assert_string_result(CALLN("json_escape", &err, V_s("a\\b")), "a\\\\b");
+    assert_string_result(CALLN("json_escape", &err, V_s("l1\nl2\t\r")), "l1\\nl2\\t\\r");
+    assert_string_result(CALLN("json_escape", &err, V_s("\x01\x1f")), "\\u0001\\u001f");
+    assert_string_result(CALLN("json_escape", &err, V_s("ünï 🎵")), "ünï 🎵");
+    assert_string_result(CALLN("json_escape", &err, V_i64(5)), "5");
+    assert_string_result(CALLN("json_escape", &err, (GVariant *)NULL), "");
+    g_assert_no_error(err);
+    GVariant *r = CALLN("json_escape", &err, V_s("a"), V_s("b"));
+    assert_fails(r, err, "function json_escape takes exactly one argument*");
+}
+
+static void test_duration_negative(void) {
+    GError *err = NULL;
+    assert_string_result(CALL(helperfn_duration, NULL, &err, V_i64(-5000000)), "-0:05");
+    assert_string_result(CALL(helperfn_duration, NULL, &err, V_i64(-3725000000)), "-1:02:05");
+    assert_string_result(CALL(helperfn_duration, NULL, &err, V_i64(G_MININT64)), "-2562047788:00:54");
+    g_assert_no_error(err);
+}
+
+static void test_emoji_loop_and_shuffle(void) {
+    GVariantDict *ctx = empty_ctx();
+    g_variant_dict_insert(ctx, "loop", "s", "Track");
+    ASSERT_RENDERS("{{emoji(loop)}}", ctx, "🔂");
+    g_variant_dict_insert(ctx, "loop", "s", "Playlist");
+    ASSERT_RENDERS("{{emoji(loop)}}", ctx, "🔁");
+    g_variant_dict_insert(ctx, "loop", "s", "None");
+    ASSERT_RENDERS("{{emoji(loop)}}", ctx, "➡️");
+    g_variant_dict_insert(ctx, "loop", "s", "Weird");
+    ASSERT_RENDERS("{{emoji(loop)}}", ctx, "Weird");
+    g_variant_dict_insert(ctx, "shuffle", "b", TRUE);
+    ASSERT_RENDERS("{{emoji(shuffle)}}", ctx, "🔀");
+    g_variant_dict_insert(ctx, "shuffle", "b", FALSE);
+    ASSERT_RENDERS("{{emoji(shuffle)}}", ctx, "➡️");
+    g_variant_dict_unref(ctx);
+}
+
+static void test_round_and_int(void) {
+    GError *err = NULL;
+    assert_int_result(CALLN("round", &err, V_d(45.5)), 46);
+    assert_int_result(CALLN("round", &err, V_d(-45.5)), -46);
+    assert_int_result(CALLN("round", &err, V_d(45.4)), 45);
+    assert_int_result(CALLN("int", &err, V_d(45.9)), 45);
+    assert_int_result(CALLN("int", &err, V_d(-45.9)), -45);
+    assert_string_result(CALLN("round", &err, (GVariant *)NULL), "");
+    g_assert_no_error(err);
+
+    GVariant *r = CALLN("round", &err, V_s("abc"));
+    assert_fails(r, err, "function round can only be called on numbers");
+    err = NULL;
+    r = CALLN("int", &err, V_d(1e300));
+    assert_fails(r, err, "function int got a value that is out of range");
+    err = NULL;
+    r = CALLN("round", &err, V_d(NAN));
+    assert_fails(r, err, "*out of range");
+
+    GVariantDict *ctx = empty_ctx();
+    g_variant_dict_insert(ctx, "volume", "d", 0.45);
+    ASSERT_RENDERS("{{round(volume * 100)}}", ctx, "45");
+    g_variant_dict_unref(ctx);
+}
+
+static void test_replace(void) {
+    GError *err = NULL;
+    assert_string_result(CALLN("replace", &err, V_s("a-b-c"), V_s("-"), V_s("+")), "a+b+c");
+    assert_string_result(CALLN("replace", &err, V_s("abc"), V_s("x"), V_s("y")), "abc");
+    assert_string_result(CALLN("replace", &err, V_s("abc"), V_s(""), V_s("y")), "abc");
+    assert_string_result(CALLN("replace", &err, V_s("abc"), V_s("b"), V_s("")), "ac");
+    assert_string_result(CALLN("replace", &err, (GVariant *)NULL, V_s("b"), V_s("c")), "");
+    g_assert_no_error(err);
+    GVariant *r = CALLN("replace", &err, V_s("a"), V_s("b"));
+    assert_fails(r, err, "function replace takes exactly three arguments*");
+}
+
+static void test_join(void) {
+    GError *err = NULL;
+    const gchar *artists[] = { "A", "B", "C", NULL };
+    assert_string_result(CALLN("join", &err, g_variant_new_strv(artists, -1), V_s(" & ")), "A & B & C");
+    const gchar *one[] = { "A", NULL };
+    assert_string_result(CALLN("join", &err, g_variant_new_strv(one, -1), V_s(", ")), "A");
+    assert_string_result(CALLN("join", &err, V_s("solo"), V_s(", ")), "solo");
+    assert_string_result(CALLN("join", &err, (GVariant *)NULL, V_s(", ")), "");
+    g_assert_no_error(err);
+}
+
+static void test_pad(void) {
+    GError *err = NULL;
+    assert_string_result(CALLN("pad", &err, V_s("ab"), V_d(5)), "ab   ");
+    assert_string_result(CALLN("pad", &err, V_s("ab"), V_d(-5)), "   ab");
+    assert_string_result(CALLN("pad", &err, V_s("abcdef"), V_d(3)), "abcdef");
+    assert_string_result(CALLN("pad", &err, V_s("ünï"), V_i64(5)), "ünï  ");
+    assert_string_result(CALLN("pad", &err, (GVariant *)NULL, V_d(3)), "");
+    g_assert_no_error(err);
+    GVariant *r = CALLN("pad", &err, V_s("a"), V_s("3"));
+    assert_fails(r, err, "*width parameter must be a number");
+    err = NULL;
+    r = CALLN("pad", &err, V_s("a"), V_d(1e12));
+    assert_fails(r, err, "*out of range");
+}
+
+static void test_uri_decode(void) {
+    GError *err = NULL;
+    assert_string_result(CALLN("uri_decode", &err, V_s("file:///music/My%20Song%20%26%20More.mp3")), "file:///music/My Song & More.mp3");
+    assert_string_result(CALLN("uri_decode", &err, V_s("plain")), "plain");
+    assert_string_result(CALLN("uri_decode", &err, V_s("bad%zz")), "bad%zz");
+    assert_string_result(CALLN("uri_decode", &err, (GVariant *)NULL), "");
+    g_assert_no_error(err);
+}
+
+static void test_arity_table(void) {
+    GError *err = NULL;
+    GVariant *r = CALLN("+", &err, V_i64(1), V_i64(2), V_i64(3));
+    assert_fails(r, err, "function + takes between 1 and 2 arguments (got 3)");
+    err = NULL;
+    r = CALLN("*", &err, V_i64(1));
+    assert_fails(r, err, "function * takes exactly two arguments (got 1)");
+}
+
+static void test_helper_edge_cases(void) {
+    GError *err = NULL;
+
+    /* json_escape: the control characters with a short escape */
+    assert_string_result(CALLN("json_escape", &err, V_s("\b\f")), "\\b\\f");
+
+    /* round and int: integer, unsigned and string inputs */
+    assert_int_result(CALLN("round", &err, V_i64(7)), 7);
+    assert_int_result(CALLN("round", &err, V_u64(7)), 7);
+    assert_int_result(CALLN("round", &err, V_s("2.5")), 3);
+    assert_int_result(CALLN("round", &err, V_s("-2.5")), -3);
+    assert_int_result(CALLN("int", &err, V_s("2.9")), 2);
+    assert_int_result(CALLN("int", &err, V_i64(-7)), -7);
+    g_assert_no_error(err);
+
+    GVariant *r = CALLN("round", &err, V_s("2x"));
+    assert_fails(r, err, "function round can only be called on numbers");
+    err = NULL;
+    r = CALLN("round", &err, V_s(""));
+    assert_fails(r, err, "function round can only be called on numbers");
+    err = NULL;
+    r = CALLN("int", &err, g_variant_new_boolean(TRUE));
+    assert_fails(r, err, "function int can only be called on numbers");
+    err = NULL;
+    r = CALLN("round", &err, V_u64(G_MAXUINT64));
+    assert_fails(r, err, "function round got a value that is out of range");
+    err = NULL;
+
+    /* join: an empty list */
+    const gchar *none[] = { NULL };
+    assert_string_result(CALLN("join", &err, g_variant_new_strv(none, 0), V_s(", ")), "");
+
+    /* pad: a missing width, a width far below zero */
+    assert_string_result(CALLN("pad", &err, V_s("a"), (GVariant *)NULL), "");
+    g_assert_no_error(err);
+    r = CALLN("pad", &err, V_s("a"), V_d(-1e12));
+    assert_fails(r, err, "*out of range");
+    err = NULL;
+
+    /* emoji: a loop or shuffle of the wrong type passes through */
+    GVariantDict *ctx = empty_ctx();
+    g_variant_dict_insert(ctx, "loop", "x", (gint64)3);
+    ASSERT_RENDERS("{{emoji(loop)}}", ctx, "3");
+    g_variant_dict_insert(ctx, "shuffle", "s", "maybe");
+    ASSERT_RENDERS("{{emoji(shuffle)}}", ctx, "maybe");
+    g_variant_dict_unref(ctx);
+}
+
+static void test_unsigned_edge_cases(void) {
+    GError *err = NULL;
+
+    /* duration: an unsigned value above INT64_MAX is out of range */
+    GVariant *r = CALL(helperfn_duration, NULL, &err, V_u64(G_MAXUINT64));
+    assert_fails(r, err, "function duration got a value that is out of range");
+    err = NULL;
+
+    /* unary minus of an unsigned value: int64 when it fits, else double */
+    r = CALL(infixfn_sub, NULL, &err, V_u64(5));
+    g_assert_nonnull(r);
+    g_assert_true(g_variant_is_of_type(r, G_VARIANT_TYPE_INT64));
+    g_assert_cmpint(g_variant_get_int64(r), ==, -5);
+    g_variant_unref(r);
+    r = CALL(infixfn_sub, NULL, &err, V_u64(G_MAXUINT64));
+    g_assert_nonnull(r);
+    g_assert_true(g_variant_is_of_type(r, G_VARIANT_TYPE_DOUBLE));
+    g_assert_cmpfloat(g_variant_get_double(r), <, -1.8e19);
+    g_variant_unref(r);
+    g_assert_no_error(err);
 }
 
 static void test_default(void) {
@@ -722,7 +956,7 @@ static void test_default(void) {
     g_assert_null(r);
     g_assert_no_error(err);
 
-    r = CALL(helperfn_default, NULL, &err, V_s("a"));
+    r = CALLN("default", &err, V_s("a"));
     assert_fails(r, err, "function default takes exactly two arguments*");
 
     GVariantDict *ctx = empty_ctx();
@@ -903,6 +1137,17 @@ int main(int argc, char **argv) {
     T("fn/trunc-negative-length", test_trunc_negative_length);
     T("fn/trunc-errors", test_trunc_errors);
     T("fn/default", test_default);
+    T("fn/duration-negative", test_duration_negative);
+    T("fn/emoji-loop-shuffle", test_emoji_loop_and_shuffle);
+    T("fn/round-int", test_round_and_int);
+    T("fn/json-escape", test_json_escape);
+    T("fn/replace", test_replace);
+    T("fn/join", test_join);
+    T("fn/pad", test_pad);
+    T("fn/uri-decode", test_uri_decode);
+    T("fn/arity-table", test_arity_table);
+    T("fn/helper-edge-cases", test_helper_edge_cases);
+    T("fn/unsigned-edge-cases", test_unsigned_edge_cases);
     T("fn/emoji", test_emoji_status_and_volume);
     T("fn/emoji-errors", test_emoji_errors);
     T("fn/emoji-direct-non-variable", test_emoji_direct_non_variable_token);
