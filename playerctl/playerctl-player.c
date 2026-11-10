@@ -71,8 +71,6 @@ enum
 
 enum
 {
-  /* XXX: dead code: commented-out PROPERTIES_CHANGED signal entry. */
-  // PROPERTIES_CHANGED,
   PLAYBACK_STATUS,
   LOOP_STATUS,
   SHUFFLE,
@@ -272,8 +270,6 @@ playerctl_player_properties_changed_callback (
         }
 
       g_debug ("%s: metadata changed", instance);
-      /* XXX: dead code: commented-out g_debug() call. */
-      // g_debug("metadata: %s", g_variant_print(metadata, TRUE));
       g_signal_emit (self, connection_signals[METADATA], 0, metadata);
       g_variant_unref (metadata);
     }
@@ -288,7 +284,7 @@ playerctl_player_properties_changed_callback (
       /* FIXME: blocking g_dbus_proxy_call_sync() with no timeout (-1 means
          the 25 s default) inside a signal handler; a hung player freezes
          the main loop. Also XXX: DRY: this Properties.Get call and its
-         unwrapping is repeated at L441, L491 and L1989, with string
+         unwrapping is repeated at L437, L487 and L1968, with string
          literals although PROPERTIES_IFACE and PLAYER_IFACE exist; make one
          helper. */
       GVariant *call_reply = g_dbus_proxy_call_sync (
@@ -397,7 +393,7 @@ playerctl_player_properties_changed_callback (
     }
 }
 
-/* STYLE: user_data is declared gpointer *, not gpointer; the same at L1188.
+/* STYLE: user_data is declared gpointer *, not gpointer; the same at L1184.
    It works only because all pointers have the same representation. */
 static void
 playerctl_player_seeked_callback (GDBusProxy *_proxy, gint64 position,
@@ -455,8 +451,8 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
       if (metadata == NULL)
         {
           /* XXX: SUSPICIOUS: error codes are bare literals. 3 means
-             "invalid reply" here and at L2009 but "instance without source"
-             at L1227; 1 is "not found", 2 is "no track id". Define a public
+             "invalid reply" here and at L1988 but "instance without source"
+             at L1223; 1 is "not found", 2 is "no track id". Define a public
              error enum so callers can tell them apart. */
           g_set_error (err, playerctl_player_error_quark (), 3,
                        "Player sent an invalid reply for the Metadata "
@@ -669,7 +665,7 @@ playerctl_player_get_property (GObject *object, guint property_id,
         break;
       }
 
-    /* XXX: DRY: the six PROP_CAN_* cases (to L728) differ only in the
+    /* XXX: DRY: the six PROP_CAN_* cases (to L724) differ only in the
        property name; a table from property id to "CanPlay" and so on would
        replace them. */
     case PROP_CAN_CONTROL:
@@ -850,7 +846,7 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
       "only in a future version. Use playerctl_player_set_volume() to set the "
       "volume.",
       /* XXX: SUSPICIOUS: the volume range is 0..100 here and in the volume
-         signal docs (L1064), but playerctl_player_set_volume() documents
+         signal docs (L1060), but playerctl_player_set_volume() documents
          0.0..1.0, which is the MPRIS scale. One of them is wrong. */
       0, 100, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -927,7 +923,7 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    * "paused", or "stopped" which you can listen to by connecting to the
    * "playback-status::[STATUS]" signal.
    */
-  /* XXX: DRY: nine g_signal_new() blocks (to L1120) differ only in name,
+  /* XXX: DRY: nine g_signal_new() blocks (to L1116) differ only in name,
      flags, marshaller and parameter type; a table would shorten class_init
      a lot (lizard length). */
   connection_signals[PLAYBACK_STATUS] = g_signal_new (
@@ -1255,18 +1251,6 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
                                                bus_types[i], &tmp_error);
           if (tmp_error != NULL)
             {
-              /* XXX: dead code (in practice):
-                 pctl_list_player_names_on_bus() already swallows
-                 G_IO_ERROR_NOT_FOUND for a missing bus, so
-                 bus_name_for_player_name() never returns it and this branch
-                 cannot run. */
-              if (tmp_error->domain == G_IO_ERROR
-                  && tmp_error->code == G_IO_ERROR_NOT_FOUND)
-                {
-                  g_debug ("Bus address set incorrectly, cannot get bus");
-                  g_clear_error (&tmp_error);
-                  continue;
-                }
               g_propagate_error (err, tmp_error);
               return FALSE;
             }
@@ -1413,8 +1397,8 @@ playerctl_list_players (GError **err)
  * Returns:(transfer full): A new #PlayerctlPlayer connected to an instance of
  * the player or NULL if an error occurred
  */
-/* XXX: DRY: playerctl_player_new(), _new_for_source() (L1453) and
-   _new_from_name() (L1485) repeat the same g_initable_new() and error
+/* XXX: DRY: playerctl_player_new(), _new_for_source() (L1437) and
+   _new_from_name() (L1469) repeat the same g_initable_new() and error
    propagation; only the property list differs. */
 PlayerctlPlayer *
 playerctl_player_new (const gchar *player_name, GError **err)
@@ -1514,7 +1498,7 @@ playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
                      GClosure *callback, GError **err)
 {
   /* XXX: DRY: the init_error check is copied into every public function
-     (L1528, L1595, L1666, L1799, L1848 and more). g_return_if_fail (self !=
+     (L1512, L1579, L1648, L1778, L1827 and more). g_return_if_fail (self !=
      NULL) also accepts a wrong object type; PLAYERCTL_IS_PLAYER (self)
      would catch it. */
   g_return_if_fail (self != NULL);
@@ -1536,7 +1520,7 @@ playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
 
 /* XXX: KISS: this macro declares a variable, returns and propagates errors
    from inside, and is not wrapped in do { } while (0); it is hard to step
-   through and playerctl_player_open() (L1588) and _seek() (L1659) repeat it
+   through and playerctl_player_open() (L1572) and _seek() (L1641) repeat it
    by hand. A static helper taking the call would do. */
 #define PLAYER_COMMAND_FUNC(COMMAND)                                          \
   GError *tmp_error = NULL;                                                   \
@@ -1600,8 +1584,6 @@ playerctl_player_open (PlayerctlPlayer *self, gchar *uri, GError **err)
   if (tmp_error != NULL)
     {
       g_propagate_error (err, tmp_error);
-      /* XXX: dead code: return at the end of a void function (also L1678). */
-      return;
     }
 }
 
@@ -1672,7 +1654,6 @@ playerctl_player_seek (PlayerctlPlayer *self, gint64 offset, GError **err)
   if (tmp_error != NULL)
     {
       g_propagate_error (err, tmp_error);
-      return;
     }
 }
 
@@ -1762,9 +1743,7 @@ print_metadata_table (GVariant *metadata, gchar *player_name)
       return NULL;
     }
   // cut off the last newline
-  /* XXX: dead code: g_string_truncate() returns the same pointer, so the
-     assignment is redundant. */
-  table = g_string_truncate (table, table->len - 1);
+  g_string_truncate (table, table->len - 1);
 
   return g_string_free (table, FALSE);
 }
@@ -1832,7 +1811,7 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
 }
 
 /* XXX: DRY: init_error is already checked by
-   playerctl_player_print_metadata_prop() (L1799), so this wrapper repeats
+   playerctl_player_print_metadata_prop() (L1778), so this wrapper repeats
    the check and adds nothing. */
 static gchar *
 player_get_metadata_string (PlayerctlPlayer *self, const gchar *key,
@@ -1929,8 +1908,8 @@ player_set_mpris_property (PlayerctlPlayer *self, const gchar *name,
     }
 }
 
-/* STYLE: the gtk-doc identifier line has no trailing colon (also L1968 and
-   L2021), so gtk-doc ignores these comments. */
+/* STYLE: the gtk-doc identifier line has no trailing colon (also L1947 and
+   L2000), so gtk-doc ignores these comments. */
 /**
  * playerctl_player_set_volume
  * @self: a #PlayerctlPlayer

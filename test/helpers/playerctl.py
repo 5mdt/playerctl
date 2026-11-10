@@ -41,8 +41,7 @@ class CommandResult:
 
 
 class PlayerctlProcess:
-    # XXX: dead code: the debug argument is never used.
-    def __init__(self, proc, debug=False):
+    def __init__(self, proc):
         self.queue = asyncio.Queue()
         self.proc = proc
 
@@ -57,17 +56,9 @@ class PlayerctlProcess:
                 else:
                     self.queue.put_nowait(line)
 
-        async def printer(stream):
-            while True:
-                line = await stream.readline()
-                print(line)
-                if not line:
-                    break
-
         self._reader = asyncio.get_event_loop().create_task(
             reader(proc.stdout)
         )
-        # asyncio.get_event_loop().create_task(printer(proc.stderr))
         register(proc, self._reader)
 
     def running(self):

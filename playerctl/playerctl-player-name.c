@@ -41,9 +41,6 @@ playerctl_player_name_copy (PlayerctlPlayerName *name)
   retval = g_slice_new0 (PlayerctlPlayerName);
   *retval = *name;
 
-  /* XXX: dead code: *retval = *name already copied source, and instance and
-     name are replaced right after; only the g_strdup () lines matter. */
-  retval->source = name->source;
   retval->instance = g_strdup (name->instance);
   retval->name = g_strdup (name->name);
 

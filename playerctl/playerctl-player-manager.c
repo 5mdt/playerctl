@@ -73,23 +73,6 @@ G_DEFINE_TYPE_WITH_CODE (
                                playerctl_player_manager_initable_iface_init));
 
 static void
-playerctl_player_manager_set_property (GObject *object, guint property_id,
-                                       const GValue *value, GParamSpec *pspec)
-{
-  /* XXX: dead code: a commented-out line, and set_property has only the
-     default case: no property is writable (all G_PARAM_READABLE), so the
-     function is not needed. */
-  // PlayerctlPlayerManager *manager = PLAYERCTL_PLAYER_MANAGER(object);
-
-  switch (property_id)
-    {
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
-      break;
-    }
-}
-
-static void
 playerctl_player_manager_get_property (GObject *object, guint property_id,
                                        GValue *value, GParamSpec *pspec)
 {
@@ -133,7 +116,7 @@ playerctl_player_manager_dispose (GObject *gobject)
   G_OBJECT_CLASS (playerctl_player_manager_parent_class)->dispose (gobject);
 }
 
-/* FIXME: priv->sort_notify is stored (L542) but never called, neither here
+/* FIXME: priv->sort_notify is stored (L520) but never called, neither here
    nor when set_sort_func() replaces it, so the destroy notify promised by
    the API docs never runs and sort_data leaks. */
 static void
@@ -153,13 +136,12 @@ playerctl_player_manager_class_init (PlayerctlPlayerManagerClass *klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
-  gobject_class->set_property = playerctl_player_manager_set_property;
   gobject_class->get_property = playerctl_player_manager_get_property;
   gobject_class->constructed = playerctl_player_manager_constructed;
   gobject_class->dispose = playerctl_player_manager_dispose;
   gobject_class->finalize = playerctl_player_manager_finalize;
 
-  /* STYLE: doc comment lines longer than 79 columns (also L172). */
+  /* STYLE: doc comment lines longer than 79 columns (also L154). */
   /**
    * PlayerctlPlayerManager:players: (transfer none) (type GList(PlayerctlPlayer))
    *
@@ -279,7 +261,7 @@ manager_remove_managed_player_by_name (PlayerctlPlayerManager *manager,
       PlayerctlPlayer *player = PLAYERCTL_PLAYER (l->data);
       /* XXX: SUSPICIOUS: pctl_player_get_instance() is NULL for a player
          created by playerctl_player_new() or _new_for_source() (see
-         playerctl-player.c:1294), so such a managed player never matches
+         playerctl-player.c:1278), so such a managed player never matches
          here and is not removed when its name vanishes. */
       gchar *instance = pctl_player_get_instance (player);
       PlayerctlPlayerName managed = { .instance = instance };
@@ -342,11 +324,7 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
     }
   else
     {
-      /* XXX: dead code: g_error() does not return, so the unref and return
-         below never run (and player_id would leak). */
       g_error ("got unknown proxy in callback (this is a bug in playerctl)");
-      g_variant_unref (name_variant);
-      return;
     }
 
   GVariant *previous_owner_variant = g_variant_get_child_value (parameters, 1);
@@ -357,7 +335,7 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
   const gchar *new_owner = g_variant_get_string (new_owner_variant, NULL);
 
   GList *player_entry = NULL;
-  /* XXX: SUSPICIOUS: strlen (x) == 0 as emptiness test (also L381). A
+  /* XXX: SUSPICIOUS: strlen (x) == 0 as emptiness test (also L359). A
      change of owner (old and new both non-empty, a player restarting under
      the same name) matches neither branch, so no name-vanished and name-
      appeared pair is emitted. */
@@ -417,7 +395,7 @@ playerctl_player_manager_initable_init (GInitable *initable,
       return TRUE;
     }
 
-  /* XXX: DRY: the session and the system proxy creation (to L455) are the
+  /* XXX: DRY: the session and the system proxy creation (to L433) are the
      same block twice, with the same TODO. */
   manager->priv->session_proxy = g_dbus_proxy_new_for_bus_sync (
       G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, NULL,
@@ -463,7 +441,7 @@ playerctl_player_manager_initable_init (GInitable *initable,
     }
 
   /* STYLE: G_DBUS_PROXY () casts of values that already have that type
-     (also L469, L475). */
+     (also L447, L453). */
   if (manager->priv->session_proxy)
     {
       g_signal_connect (
@@ -560,8 +538,8 @@ void
 playerctl_player_manager_move_player_to_top (PlayerctlPlayerManager *manager,
                                              PlayerctlPlayer *player)
 {
-  /* XXX: DRY: the three list scans (L276, L566, L608) are g_list_find ()
-     with extra steps; L608 is exactly g_list_find (players, player) !=
+  /* XXX: DRY: the three list scans (L258, L544, L586) are g_list_find ()
+     with extra steps; L586 is exactly g_list_find (players, player) !=
      NULL. */
   GList *l;
   for (l = manager->priv->players; l != NULL; l = l->next)

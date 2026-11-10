@@ -18,9 +18,7 @@
  */
 
 /* XXX: SUSPICIOUS: strcmp(), strlen(), calloc(), free() and exit() are used
-   without <string.h> and <stdlib.h>; <assert.h> is only here for assert
-   (false) at L1151. */
-#include <assert.h>
+   without <string.h> and <stdlib.h>. */
 #include <gio/gio.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -113,17 +111,11 @@ static struct Player *
 player_new (const char *unique, const char *well_known)
 {
   /* XXX: calloc() and free() are mixed with the GLib allocators, and the
-     result is not checked (also L165, L1294, L1355, L1366); use g_new0()
+     result is not checked (also L157, L1277, L1338, L1349); use g_new0()
      and g_free(). */
   struct Player *player = calloc (1, sizeof (struct Player));
   player->unique = g_strdup (unique);
   player->well_known = g_strdup (well_known);
-  /* XXX: dead code: calloc() already zeroed these fields; the assignments
-     (to L126) do nothing. */
-  // Explicitly initialize everything else - just in case
-  player->position = 0;
-  player->player_properties = NULL;
-  player->root_properties = NULL;
   player->cancellable = g_cancellable_new ();
   return player;
 }
@@ -269,9 +261,6 @@ player_update_properties (struct Player *player, const char *interface_name,
       const gchar *key = g_variant_get_string (key_variant, 0);
       GVariant *prop_variant = g_variant_get_child_value (child, 1);
       GVariant *prop_value = g_variant_get_variant (prop_variant);
-      /* XXX: dead code: commented-out g_debug() (also L292-L293, a half
-         comment). */
-      // g_debug("key=%s, value=%s", key, g_variant_print(prop_value, TRUE));
       if (cache == &player->player_properties
           && g_strcmp0 (key, "Position") == 0)
         {
@@ -289,8 +278,6 @@ player_update_properties (struct Player *player, const char *interface_name,
             {
               g_debug ("%s: changed property '%s.%s'", player->well_known,
                        interface_name, key);
-              // g_debug("old = %s, new = %s", g_variant_print(cache_value,
-              // FALSE),
               changed = TRUE;
             }
           g_variant_unref (cache_value);
@@ -345,7 +332,7 @@ player_update_position_sync (struct Player *player,
   /* FIXME: the reply is assumed to be "(v)" without a type check; another
      reply type makes g_variant_get_child_value() return NULL or warn.
      playerctl-player.c has properties_get_reply_value() for exactly this;
-     share it. The same is assumed for GetAll replies at L1309. */
+     share it. The same is assumed for GetAll replies at L1292. */
   GVariant *position_unwrapped = g_variant_get_child_value (reply, 0);
   GVariant *position_variant = g_variant_get_variant (position_unwrapped);
   if (g_variant_is_of_type (position_variant, G_VARIANT_TYPE_INT64))
@@ -523,7 +510,7 @@ context_emit_active_player_changed (struct PlayerctldContext *ctx,
 
   struct Player *player = g_queue_peek_head (ctx->players);
 
-  /* XXX: DRY: the Begin and End signal loops (to L578) are copies. If a
+  /* XXX: DRY: the Begin and End signal loops (to L565) are copies. If a
      Begin emit fails halfway the clients get no matching End. */
   for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
     {
@@ -662,8 +649,8 @@ context_unrotate_queue (struct PlayerctldContext *ctx)
  * Returns the newly activated player
  */
 /* XXX: DRY: context_shift_active_player() and
-   context_unshift_active_player() (L703) end with the same position update
-   plus emit block, which is repeated at L1416, L1473 and L1578. One helper
+   context_unshift_active_player() (L690) end with the same position update
+   plus emit block, which is repeated at L1399, L1456 and L1561. One helper
    would do. */
 static struct Player *
 context_shift_active_player (struct PlayerctldContext *ctx)
@@ -758,7 +745,7 @@ static const char *playerctld_introspection_xml
 
 /* XXX: SUSPICIOUS: 155 lines of hand-written introspection XML next to
    data/mpris-dbus-interface.xml; two descriptions of the same interfaces
-   drift apart (see L450). */
+   drift apart (see L437). */
 static const char *mpris_introspection_xml
     = "<node>\n"
       "  <interface name=\"org.mpris.MediaPlayer2\">\n"
@@ -1070,8 +1057,8 @@ playerctld_method_call_func (GDBusConnection *connection, const char *sender,
 
   if (strcmp (method_name, "Shift") == 0)
     {
-      /* STYLE: doc-style comments inside a function body (also L1102,
-         L1123) look like gtk-doc but document nothing. */
+      /* STYLE: doc-style comments inside a function body (also L1089,
+         L1110) look like gtk-doc but document nothing. */
       /**
        * playerctld.Shift
        * Move the active player to the back of the queue,
@@ -1142,10 +1129,6 @@ playerctld_get_property_func (GDBusConnection *connection, const gchar *sender,
       // Fail on unknown properties.
       // FIXME: Should return a DBus error and not crash
       g_error ("unknown property: %s", property_name);
-      /* XXX: dead code: g_error() does not return, so assert (false) is
-         unreachable (and gone with NDEBUG). GDBus only calls the getter for
-         properties declared in the XML, so this path is defensive only. */
-      assert (false);
     }
 
   return context_player_names_to_gvariant (ctx);
@@ -1169,7 +1152,7 @@ static GDBusInterfaceVTable vtable_playerctld = {
  * That is to say, the four MPRIS interfaces as well as the playerctld
  * interfaces
  */
-/* XXX: DRY: six copies of register_object plus warning (to L1237); loop
+/* XXX: DRY: six copies of register_object plus warning (to L1220); loop
    over a table. If one fails the daemon carries on half-registered and
    still owns the bus name. */
 static void
@@ -1257,8 +1240,8 @@ on_name_lost (GDBusConnection *connection, const char *name,
   g_main_loop_quit (ctx->loop);
 }
 
-/* STYLE: bool here and gboolean elsewhere in the file (also L172, L1298,
-   L1457). */
+/* STYLE: bool here and gboolean elsewhere in the file (also L164, L1281,
+   L1440). */
 static bool
 well_known_name_is_managed (const char *name)
 {
@@ -1317,7 +1300,7 @@ active_player_get_properties_async_callback (GObject *source_object,
       if (!player_is_usable (player))
         {
           /* XXX: KISS: goto out only skips the error block and the free;
-             data is freed in three places (L1294, L1355). */
+             data is freed in three places (L1277, L1338). */
           goto out;
         }
       if (player == ctx->pending_active)
@@ -1678,7 +1661,7 @@ playercmd_call (GDBusConnection *connection, const char *method)
 }
 
 /* STYLE: playercmd_shift(), playercmd_unshift() and
-   start_playerctld_dbus_activation() (L1707) are not static and have no
+   start_playerctld_dbus_activation() (L1690) are not static and have no
    prototype (-Wmissing-prototypes); make them static. */
 int
 playercmd_shift (GDBusConnection *connection)
@@ -1777,13 +1760,11 @@ main (int argc, char *argv[])
       = g_dbus_address_get_for_bus_sync (G_BUS_TYPE_SESSION, NULL, &error);
   if (error != NULL)
     {
-      /* STYLE: the g_printerr messages at L1787, L1796, L1864 and L1871
+      /* STYLE: the g_printerr messages at L1768, L1777, L1841 and L1848
          have no trailing newline. */
       g_printerr ("could not get bus address: %s", error->message);
       return 1;
     }
-  /* XXX: dead code: commented-out g_bus_get_sync(). */
-  // ctx.connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
   ctx.connection = g_dbus_connection_new_for_address_sync (
       ctx.bus_address, connection_flags, NULL, NULL, &error);
   if (error != NULL)
@@ -1815,18 +1796,14 @@ main (int argc, char *argv[])
                               "DBus service activation "
                               "of playerctld is not supported");
           return 1;
-          /* XXX: dead code: break after return (also L1830, L1834). */
-          break;
         case ACTIVATION_SUCCESS:
           g_printerr (
               "%s\n",
               "playerctld successfully started with DBus service activation");
           return 0;
-          break;
         case ACTIVATION_ALREADY_RUNNING:
           g_printerr ("%s\n", "playerctld DBus service is already running");
           return 0;
-          break;
         case ACTIVATION_FAIL:
           // not reached, already handled in the error condition
           return 1;
@@ -1866,7 +1843,7 @@ main (int argc, char *argv[])
       g_printerr ("%s", error->message);
       return 1;
     }
-  /* XXX: DRY: four identical lookup-or-g_error blocks (to L1902), while the
+  /* XXX: DRY: four identical lookup-or-g_error blocks (to L1879), while the
      two playerctld lookups below have no check at all. g_error() aborts, so
      a mismatch gives a core dump instead of a message. */
   ctx.root_interface_info = g_dbus_node_info_lookup_interface (
@@ -1903,7 +1880,7 @@ main (int argc, char *argv[])
   // Get all names of players (names that start with "org.mpris.MediaPlayer2.")
   // then fetch their properties on all supported interfaces
   /* FIXME: race: ListNames is read here but the NameOwnerChanged and player
-     signal subscriptions only start at L1989, so a player appearing in
+     signal subscriptions only start at L1966, so a player appearing in
      between is never seen. Subscribe first, then list. */
   GVariant *names_reply = g_dbus_connection_call_sync (
       ctx.connection, DBUS_NAME, DBUS_PATH, DBUS_INTERFACE, "ListNames", NULL,

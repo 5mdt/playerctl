@@ -80,7 +80,7 @@ static struct token *
 token_create (enum token_type type)
 {
   /* XXX: calloc() and free() are mixed with GLib allocators and unchecked
-     (also L101, L1494, L1495, L1510, L1511). */
+     (also L101, L1482, L1483, L1498, L1499). */
   struct token *token = calloc (1, sizeof (struct token));
   token->type = type;
   return token;
@@ -120,7 +120,7 @@ token_list_contains_key (GList *tokens, const gchar *key)
       return FALSE;
     }
 
-  GList *t = NULL;
+  GList *t;
   for (t = tokens; t != NULL; t = t->next)
     {
       struct token *token = t->data;
@@ -195,9 +195,9 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
 {
   GError *tmp_error = NULL;
   int len = strlen (format);
-  /* XXX: SUSPICIOUS: buf[1028] here and in tokenize_format() (L511,
-     L514-L492) with no bounds check on buf_len++ (L269, L283, L308, L342,
-     L420); it is only safe because tokenize_format() rejects formats of
+  /* XXX: SUSPICIOUS: buf[1028] here and in tokenize_format() (L505,
+     L508-L486) with no bounds check on buf_len++ (L269, L283, L305, L338,
+     L414); it is only safe because tokenize_format() rejects formats of
      1028 characters or more. Use a named constant, or a GString. */
   char buf[1028];
   int buf_len = 0;
@@ -298,9 +298,6 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
                   i++;
                 }
               *end = i;
-              /* XXX: dead code: commented-out printf debugging (also L337,
-                 L353, L415, L534). */
-              // printf("string: '%s'\n", tok->data);
               goto loop_out;
             }
           else
@@ -334,7 +331,6 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
                   i++;
                 }
               *end = i;
-              // printf("number: '%f'\n", tok->numeric_data);
               goto loop_out;
             }
           else
@@ -350,13 +346,12 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
               buf[buf_len] = '\0';
               tok->data = g_strdup (buf);
               i += 1;
-              // printf("function: '%s'\n", tok->data);
 
               int nargs = 0;
               while (TRUE)
                 {
                   /* XXX: SUSPICIOUS: NULL is appended to tok->args when the
-                     nested call failed (checked only afterwards, L375);
+                     nested call failed (checked only afterwards, L370);
                      harmless because token_destroy (NULL) is a no-op. */
                   tok->args = g_list_append (
                       tok->args, tokenize_expression (format, i, end,
@@ -412,7 +407,6 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
                   i++;
                 }
               *end = i;
-              // printf("variable: '%s' end='%c'\n", tok->data, format[*end]);
               goto loop_out;
             }
           else
@@ -442,7 +436,7 @@ loop_out:
     }
 
   /* XXX: DRY: the "create an operation token with two arguments" block
-     exists twice (L461-L441, L486-L466). */
+     exists twice (L455-L435, L480-L460). */
   gchar infix_id = format[*end];
   while (infix_id == '*' || infix_id == '/' || infix_id == '+'
          || infix_id == '-')
@@ -520,10 +514,7 @@ tokenize_format (const char *format, GError **error)
 
   for (int i = 0; i < len; ++i)
     {
-      /* XXX: dead code: "i < len + 1" is always true inside the loop (i <
-         len); i + 1 < len was probably meant (format[i + 1] is safe anyway
-         because of the NUL). */
-      if (format[i] == '{' && i < len + 1 && format[i + 1] == '{')
+      if (format[i] == '{' && format[i + 1] == '{')
         {
           if (buf_len > 0)
             {
@@ -531,7 +522,6 @@ tokenize_format (const char *format, GError **error)
               buf_len = 0;
               struct token *token = token_create (TOKEN_STRING);
               token->data = g_strdup (buf);
-              // printf("passthrough: '%s'\n", token->data);
               tokens = g_list_append (tokens, token);
             }
 
@@ -579,7 +569,7 @@ tokenize_format (const char *format, GError **error)
   return tokens;
 }
 
-/* XXX: DRY: helperfn_lc, _uc and _markup_escape (L737) differ only in the
+/* XXX: DRY: helperfn_lc, _uc and _markup_escape (L727) differ only in the
    transform, and the nargs/NULL preamble repeats in all seven helpers;
    "token" is unused in most. */
 static GVariant *
@@ -972,7 +962,7 @@ operand_type_name (GVariant *value)
   return value != NULL ? g_variant_get_type_string (value) : "NULL";
 }
 
-/* XXX: DRY: infixfn_add, _sub, _mul and _div (to L1240) repeat one shape:
+/* XXX: DRY: infixfn_add, _sub, _mul and _div (to L1230) repeat one shape:
    nargs check, type check, int64 fast path with an overflow builtin, double
    fallback. One helper taking the operation would remove about 150 lines.
    add and sub also test for NULL separately although
@@ -1079,7 +1069,7 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
       if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_DOUBLE))
         {
           gdouble value = g_variant_get_double (args[0]);
-          /* STYLE: "value * -1" here, "-value" at L1075 and L1077; pick
+          /* STYLE: "value * -1" here, "-value" at L1065 and L1067; pick
              one. */
           return g_variant_new ("d", value * -1);
         }
@@ -1360,9 +1350,7 @@ expand_format (GList *tokens, GVariantDict *context, GError **error)
   GString *expanded;
 
   expanded = g_string_new ("");
-  /* XXX: dead code: t is initialised twice (also L123), and the
-     g_string_append() result is reassigned below. */
-  GList *t = tokens;
+  GList *t;
   for (t = tokens; t != NULL; t = t->next)
     {
       GVariant *value = expand_token (t->data, context, &tmp_error);
@@ -1376,7 +1364,7 @@ expand_format (GList *tokens, GVariantDict *context, GError **error)
       if (value != NULL)
         {
           gchar *result = pctl_print_gvariant (value);
-          expanded = g_string_append (expanded, result);
+          g_string_append (expanded, result);
           g_free (result);
           g_variant_unref (value);
         }
@@ -1384,7 +1372,7 @@ expand_format (GList *tokens, GVariantDict *context, GError **error)
   return g_string_free (expanded, FALSE);
 }
 
-/* XXX: DRY: the artist, album and title blocks (to L1416) are one block
+/* XXX: DRY: the artist, album and title blocks (to L1404) are one block
    three times; loop over the three names. */
 static GVariantDict *
 get_default_template_context (PlayerctlPlayer *player, GVariant *base)
