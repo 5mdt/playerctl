@@ -4,8 +4,8 @@
 
 ### Bugfixes
 - Library: `print_metadata_prop` returns an object path such as `mpris:trackid` as plain text (`/track/1`), not quoted (`'/track/1'`)
-- `metadata KEY...` prints one line per key in the requested order, skips a key the player lacks, takes all keys from the first player with metadata, and prints object paths (`mpris:trackid`) without quotes
-- `playerName` only drops a trailing `.instanceN`, so `io.bassi.Amberol` keeps its name; `default()` falls through for a list of empty strings; `duration()` accepts a numeric string such as a `mpris:length` sent as `s`
+- `metadata KEY...` prints one line per key in the requested order, skips a key the player lacks, takes all keys from the first player with metadata, and prints object paths (`mpris:trackid`) without quotes (#19, #49)
+- `playerName` only drops a trailing `.instanceN`, so `io.bassi.Amberol` keeps its name (#56); `default()` falls through for a list of empty strings (#32); `duration()` accepts a numeric string such as a `mpris:length` sent as `s` (#54)
 - `--format` and `--follow` are rejected on `position`, `volume`, `loop` and `shuffle` with an argument, and an unknown option or an option without its value exits with 1 instead of 0
 - `Player.new()` finds a player that only runs as an instance (`vlc.instance123`) by its base name, and no longer leaks the list of names or reads a wrong bus name; the manager looks up appearing names in its list of names
 - Reading the `metadata` property no longer aborts the client when the metadata cannot be fetched, and `get_artist`, `get_title` and `get_album` report the error
@@ -16,14 +16,14 @@
 - `position` and `volume` reject empty, non-finite, out-of-range and trailing-garbage arguments, `volume` is clamped to 0.0-1.0, and `volume ''` no longer reads out of bounds
 - `playerctld` no longer crashes on a player error without a body, and forwards the player's error message
 - `play`, `pause`, `play-pause`, `stop`, `next`, `previous` and `open` no longer wait for the player to answer `Properties.GetAll`, so they reach slow players such as spotifyd at once (#10)
-- `position` no longer crashes when a player reports a `mpris:trackid` that is not a valid object path, such as Totem (#33)
+- `position` no longer crashes when a player reports a `mpris:trackid` that is not a valid object path, such as Totem (#33, #21)
 - `playerctld` no longer aborts on an unexpected `PropertiesChanged`, which crashed it when Rhythmbox started playing (#24)
 - No abort on a malformed reply to `Properties.Get`, which crashed `metadata --follow` with Harmonoid (#44)
-- `-p mpv` selects `mpv` before `mpv.instance123` when both run and the daemon lists the instance first, and `-p name.instance1,name` ranks the instance by its full instance name while following
+- `-p mpv` selects `mpv` before `mpv.instance123` when both run and the daemon lists the instance first, and `-p name.instance1,name` ranks the instance by its full instance name while following (#63)
 - `playerctld` forwards the `TrackList` and `Playlists` signals (`TrackAdded`, `PlaylistChanged`, ...) of the active player
 - `playerctld` announces the `TrackList` and `Playlists` properties of a player that appeared after it started or gained the interface later, invalidates them with the right interface name when the last player leaves (it named `org.mpris.MediaPlayer2`) or when the new active player lacks an interface the previous one announced, and no longer warns about interfaces the player does have
 - `playerctld` asks a new player for `TrackList` and `Playlists` before `Player` and `Root`, so the announcement includes them, announces a late reply on its own, and no longer moves the player behind the others; replies for a player that vanished are dropped
-- Library: a player with a missing or unknown `PlaybackStatus` at start-up is stopped, not playing; the first metadata change of the track the client found keeps the position; the position is already 0 in the `stop` handler and in the `metadata` handler of a new track
+- Library: a player with a missing or unknown `PlaybackStatus` at start-up is stopped, not playing; the first metadata change of the track the client found keeps the position; the position is already 0 in the `stop` handler and in the `metadata` handler of a new track (#57)
 - Library: `Volume`, `Shuffle` and the `Can*` properties are read again after the player invalidates them in `PropertiesChanged`
 - Library: `set_volume()`, `set_loop_status()` and `set_shuffle()` use the bus of the player (they failed for a player on the system bus), no longer leak the connection, and update the cached property (#42)
 - Library: listing the players no longer subscribes to D-Bus signals, which used up memory on every call
