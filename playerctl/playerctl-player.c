@@ -1144,26 +1144,33 @@ bus_name_for_player_name (gchar *name, GBusType bus_type, GError **err)
       return NULL;
     }
 
-  /* XXX: KISS: assignments inside the else-if conditions are hard to read;
-     two plain lookups guarded by "if (match == NULL)" say the same. */
-  GList *match = NULL;
   if (names == NULL)
     {
       return NULL;
     }
-  else if (name == NULL)
+
+  GList *match = NULL;
+  if (name == NULL)
     {
       g_debug ("Getting bus name for first available player");
       match = names;
     }
-  else if ((match = pctl_player_name_find (names, name, source)) != NULL)
+  else
     {
-      g_debug ("Getting bus name for player %s by exact match", name);
-    }
-  else if ((match = pctl_player_name_find_instance (names, name, source))
-           != NULL)
-    {
-      g_debug ("Getting bus name for player %s by instance match", name);
+      match = pctl_player_name_find (names, name, source);
+      if (match != NULL)
+        {
+          g_debug ("Getting bus name for player %s by exact match", name);
+        }
+      else
+        {
+          match = pctl_player_name_find_instance (names, name, source);
+          if (match != NULL)
+            {
+              g_debug ("Getting bus name for player %s by instance match",
+                       name);
+            }
+        }
     }
 
   if (match != NULL)

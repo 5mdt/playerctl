@@ -35,9 +35,9 @@ playerctl_player_name_copy (PlayerctlPlayerName *name)
 
   g_return_val_if_fail (name != NULL, NULL);
 
-  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new0 macro expansion
   /* XXX: SUSPICIOUS: g_slice_new0() is deprecated since GLib 2.76, see
      playerctl-common.c:212. */
+  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new0 macro expansion
   retval = g_slice_new0 (PlayerctlPlayerName);
   *retval = *name;
 

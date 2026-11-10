@@ -1020,7 +1020,7 @@ struct player_command
 static const struct player_command *
 get_player_command (gchar **argv, gint argc, GError **error)
 {
-  if (argc < 1)
+  if (argv == NULL || argc < 1)
     {
       g_set_error (error, playerctl_cli_error_quark (), 1, "No command given");
       return NULL;
@@ -1488,6 +1488,7 @@ playerctld_names_changed_callback (GDBusConnection *connection,
   GList *names = NULL;
   for (gsize i = 0; i < count; i++)
     {
+      // NOLINTNEXTLINE(bugprone-assignment-in-if-condition): g_str_has_prefix macro
       if (g_str_has_prefix (strv[i], MPRIS_PREFIX))
         {
           names = g_list_append (
