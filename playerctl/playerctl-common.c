@@ -25,11 +25,6 @@
 #include <string.h>
 #include <strings.h>
 
-/* XXX: DRY: the bus name "org.mpris.MediaPlayer2.playerctld" is written out
-   in playerctl-daemon.c:1661, playerctl-daemon.c:1715 and playerctl-
-   daemon.c:1999; the macro lives only here. */
-#define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
-
 /* XXX: DRY: parse and to_string for the playback status and the loop status
    (to L119) are four functions over two name tables; one table each would
    do. */
@@ -329,12 +324,9 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
   GList *players = NULL;
   gboolean has_playerctld = FALSE;
 
-  GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync (
-      bus_type,
-      G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES
-          | G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
-      NULL, "org.freedesktop.DBus", "/org/freedesktop/DBus",
-      "org.freedesktop.DBus", NULL, &tmp_error);
+  /* Plain calls on the connection: a GDBusProxy would queue a cleanup
+     callback on the main context for every call. */
+  GDBusConnection *connection = g_bus_get_sync (bus_type, NULL, &tmp_error);
 
   if (tmp_error != NULL)
     {
@@ -366,13 +358,15 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
     }
 
   g_debug ("Getting list of player names from D-Bus");
-  GVariant *reply = g_dbus_proxy_call_sync (
-      proxy, "ListNames", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
+  GVariant *reply = g_dbus_connection_call_sync (
+      connection, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+      "org.freedesktop.DBus", "ListNames", NULL, G_VARIANT_TYPE ("(as)"),
+      G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
 
   if (tmp_error != NULL)
     {
       g_propagate_error (err, tmp_error);
-      g_object_unref (proxy);
+      g_object_unref (connection);
       return NULL;
     }
 
@@ -397,20 +391,32 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
           for (gsize j = 0;
                j < G_N_ELEMENTS (interfaces) && playerctld_reply == NULL; j++)
             {
-              GDBusProxy *playerctld_proxy = g_dbus_proxy_new_for_bus_sync (
-                  bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, PLAYERCTLD_BUS_NAME,
-                  "/org/mpris/MediaPlayer2", interfaces[j], NULL, &tmp_error);
+              // an older playerctld only serves the legacy interface
+              GVariant *property = g_dbus_connection_call_sync (
+                  connection, PLAYERCTLD_BUS_NAME, "/org/mpris/MediaPlayer2",
+                  "org.freedesktop.DBus.Properties", "Get",
+                  g_variant_new ("(ss)", interfaces[j], "PlayerNames"),
+                  G_VARIANT_TYPE ("(v)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL,
+                  &tmp_error);
               if (tmp_error != NULL)
                 {
-                  g_warning ("Could not get player names from playerctld: %s",
-                             tmp_error->message);
+                  g_debug ("Could not get player names from %s: %s",
+                           interfaces[j], tmp_error->message);
                   g_clear_error (&tmp_error);
                   continue;
                 }
-              // an older playerctld only serves the legacy interface
-              playerctld_reply = g_dbus_proxy_get_cached_property (
-                  playerctld_proxy, "PlayerNames");
-              g_object_unref (playerctld_proxy);
+              GVariant *boxed = g_variant_get_child_value (property, 0);
+              GVariant *value = g_variant_get_variant (boxed);
+              g_variant_unref (boxed);
+              g_variant_unref (property);
+              if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
+                {
+                  playerctld_reply = value;
+                }
+              else
+                {
+                  g_variant_unref (value);
+                }
             }
           if (playerctld_reply == NULL)
             {
@@ -419,10 +425,12 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
               break;
             }
 
-          g_variant_unref (reply);
           g_free (names);
+          g_variant_unref (reply_child);
+          g_variant_unref (reply);
 
           reply = playerctld_reply;
+          reply_child = NULL;
           names = g_variant_get_strv (reply, &reply_count);
           has_playerctld = TRUE;
 
@@ -447,9 +455,12 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
       players = g_list_sort (players, (GCompareFunc)pctl_player_name_compare);
     }
 
-  g_object_unref (proxy);
+  g_object_unref (connection);
   g_variant_unref (reply);
-  g_variant_unref (reply_child);
+  if (reply_child != NULL)
+    {
+      g_variant_unref (reply_child);
+    }
   g_free (names);
 
   return players;

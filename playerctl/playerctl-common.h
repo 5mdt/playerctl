@@ -27,6 +27,8 @@
 
 #define MPRIS_PREFIX "org.mpris.MediaPlayer2."
 
+#define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
+
 #define PLAYERCTLD_INTERFACE "org._5mdt.playerctld"
 /* Deprecated: served alongside PLAYERCTLD_INTERFACE for compatibility. Remove
  * in the next major version. */

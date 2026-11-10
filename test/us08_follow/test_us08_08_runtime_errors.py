@@ -45,8 +45,8 @@ async def test_position_tick_reports_error_from_property_change(
     )
     assert await next_line(proc) == '0:00 10.0'
 
-    # the change callback swallows the error, but the template uses
-    # `position`, so the one-second tick renders it again and fails
+    # both the change callback and the one-second tick (the template uses
+    # `position`) render it again and fail
     await mpris1.emit_properties(volume=0.0)
     stderr = await _expect_failure(proc, timeout=3)
     assert 'Divide by zero' in stderr

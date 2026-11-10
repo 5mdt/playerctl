@@ -27,6 +27,10 @@
 - Library: `set_volume()`, `set_loop_status()` and `set_shuffle()` use the bus of the player (they failed for a player on the system bus), no longer leak the connection, and update the cached property (#42)
 - Library: listing the players no longer subscribes to D-Bus signals, which used up memory on every call
 - Library: `PlayerctlPlayerManager` removes the player of the bus whose name vanished, not the same name on the other bus (`player-vanished` and `name-vanished` no longer disagree)
+- `--follow` stops with exit code 1 and `Error while executing command` when the format fails to render after a property change (it was only logged), like it already did for a failure on the one-second tick
+- `--follow` without `-p` starts with the player that playerctld lists first, and follows `playerctld shift` and `unshift` by printing the output for the new active player (#18)
+- Library: reading the `metadata` property no longer leaks a reference to the metadata on every read, which kept the whole cover image of the track in memory (#51)
+- Library: listing the players no longer creates a D-Bus proxy on every call, it asks the bus and playerctld directly (#51)
 
 ### Features
 
@@ -38,6 +42,7 @@
 - `make test-asan` runs the C unit tests and the CLI and daemon pytest suites against an AddressSanitizer and UBSan build; reports in `build/asan`
 - `make test` also runs the C unit tests and prints a per-category outcome table; `make pre-commit` records the tests and the gcovr coverage in `test/test_history.csv` and `test/coverage_history.csv`, `make test-history-chart` draws them, one point per commit
 - New tests for the findings of the C code audit
+- The test for #51 runs the GLib main context after every step, like a program with a main loop: GLib queues a cleanup for each destroyed D-Bus proxy, which a loop that never iterates the context only piles up
 - `make version` copies the version from `packaging/package.yaml` to `meson.build`, `pyproject.toml`, `uv.lock` and `doc/installing.md`, and fails if `doc/CHANGELOG.md` has no section for it
 
 ## Version 2.5.0

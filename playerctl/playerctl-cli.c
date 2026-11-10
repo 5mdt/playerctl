@@ -951,6 +951,17 @@ playercmd_metadata (PlayerctlPlayer *player, gchar **argv, gint argc,
   return TRUE;
 }
 
+/* Report an error that happened while following, clear it and stop the main
+ * loop with exit status 1. */
+static void
+follow_fail (const gchar *prefix, GError **error)
+{
+  exit_status = 1;
+  g_printerr ("%s: %s\n", prefix, (*error)->message);
+  g_clear_error (error);
+  g_main_loop_quit (main_loop);
+}
+
 static void
 managed_player_properties_callback (PlayerctlPlayer *player, gpointer data)
 {
@@ -959,8 +970,7 @@ managed_player_properties_callback (PlayerctlPlayer *player, gpointer data)
   managed_players_execute_command (&error);
   if (error != NULL)
     {
-      g_debug ("could not execute command: %s", error->message);
-      g_clear_error (&error);
+      follow_fail ("Error while executing command", &error);
     }
 }
 
@@ -971,10 +981,7 @@ playercmd_tick_callback (gpointer data)
   managed_players_execute_command (&tmp_error);
   if (tmp_error != NULL)
     {
-      exit_status = 1;
-      g_printerr ("Error while executing command: %s\n", tmp_error->message);
-      g_clear_error (&tmp_error);
-      g_main_loop_quit (main_loop);
+      follow_fail ("Error while executing command", &tmp_error);
       return FALSE;
     }
   return TRUE;
@@ -1353,13 +1360,7 @@ name_appeared_callback (PlayerctlPlayerManager *manager,
   PlayerctlPlayer *player = playerctl_player_new_from_name (name, &error);
   if (error != NULL)
     {
-      /* XXX: DRY: "exit_status = 1; g_printerr; g_clear_error;
-         g_main_loop_quit" is written five times (L976, L1360, L1417, L1429,
-         L1446). */
-      exit_status = 1;
-      g_printerr ("Could not connect to player: %s\n", error->message);
-      g_clear_error (&error);
-      g_main_loop_quit (main_loop);
+      follow_fail ("Could not connect to player", &error);
       return;
     }
 
@@ -1408,10 +1409,7 @@ player_appeared_callback (PlayerctlPlayerManager *manager,
       playercmd_args->argv, playercmd_args->argc, &error);
   if (error != NULL)
     {
-      exit_status = 1;
-      g_printerr ("Could not get player command: %s\n", error->message);
-      g_clear_error (&error);
-      g_main_loop_quit (main_loop);
+      follow_fail ("Could not get player command", &error);
       return;
     }
 
@@ -1420,11 +1418,7 @@ player_appeared_callback (PlayerctlPlayerManager *manager,
   managed_players_execute_command (&error);
   if (error != NULL)
     {
-      exit_status = 1;
-      g_printerr ("Could not execute command: %s\n", error->message);
-      g_clear_error (&error);
-      g_main_loop_quit (main_loop);
-      return;
+      follow_fail ("Could not execute command", &error);
     }
 }
 
@@ -1437,11 +1431,86 @@ player_vanished_callback (PlayerctlPlayerManager *manager,
   managed_players_execute_command (&error);
   if (error != NULL)
     {
-      exit_status = 1;
-      g_printerr ("Could not execute command: %s\n", error->message);
-      g_clear_error (&error);
-      g_main_loop_quit (main_loop);
+      follow_fail ("Could not execute command", &error);
+    }
+}
+
+/* Put the managed players in the order of NAMES (a list of
+ * PlayerctlPlayerName, the most active first). Players that are not managed
+ * are skipped; managed players that are not in NAMES stay behind the others.
+ * A sort function of the manager (-p) still takes precedence. */
+static void
+follow_order_players (const GList *names)
+{
+  for (const GList *n = g_list_last ((GList *)names); n != NULL; n = n->prev)
+    {
+      GList *players = NULL;
+      g_object_get (manager, "players", &players, NULL);
+      for (GList *l = players; l != NULL; l = l->next)
+        {
+          PlayerctlPlayer *player = PLAYERCTL_PLAYER (l->data);
+          PlayerctlPlayerName managed
+              = { .instance = pctl_player_get_instance (player) };
+          g_object_get (player, "source", &managed.source, NULL);
+          if (pctl_player_name_compare (&managed, n->data) == 0)
+            {
+              playerctl_player_manager_move_player_to_top (manager, player);
+              break;
+            }
+        }
+    }
+}
+
+static GDBusConnection *playerctld_connection = NULL;
+static guint playerctld_subscription = 0;
+
+/* playerctld announces the player that the next command would control with a
+ * PropertiesChanged of PlayerNames (e.g. after `playerctld shift`). */
+static void
+playerctld_names_changed_callback (GDBusConnection *connection,
+                                   const gchar *sender_name,
+                                   const gchar *object_path,
+                                   const gchar *interface_name,
+                                   const gchar *signal_name,
+                                   GVariant *parameters, gpointer user_data)
+{
+  if (!g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(sa{sv}as)")))
+    {
       return;
+    }
+
+  GVariant *changed = g_variant_get_child_value (parameters, 1);
+  GVariant *value = g_variant_lookup_value (changed, "PlayerNames",
+                                            G_VARIANT_TYPE_STRING_ARRAY);
+  g_variant_unref (changed);
+  if (value == NULL)
+    {
+      return;
+    }
+
+  gsize count = 0;
+  const gchar **strv = g_variant_get_strv (value, &count);
+  GList *names = NULL;
+  for (gsize i = 0; i < count; i++)
+    {
+      if (g_str_has_prefix (strv[i], MPRIS_PREFIX))
+        {
+          names = g_list_append (
+              names, pctl_player_name_new (strv[i] + strlen (MPRIS_PREFIX),
+                                           PLAYERCTL_SOURCE_DBUS_SESSION));
+        }
+    }
+  g_free (strv);
+  g_variant_unref (value);
+
+  follow_order_players (names);
+  pctl_player_name_list_destroy (names);
+
+  GError *error = NULL;
+  managed_players_execute_command (&error);
+  if (error != NULL)
+    {
+      follow_fail ("Error while executing command", &error);
     }
 }
 
@@ -1735,12 +1804,35 @@ main (int argc, char *argv[])
     }
   else
     {
+      // managing a player puts it on top, so the first player of the
+      // list would be the last one: follow the order of the list
+      follow_order_players (available_players);
+
       managed_players_execute_command (&error);
       if (error != NULL)
         {
           g_printerr ("Connection to player failed: %s\n", error->message);
           exit_status = 1;
           goto end;
+        }
+
+      // follow the player that playerctld selects (`playerctld shift`)
+      GError *bus_error = NULL;
+      playerctld_connection
+          = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &bus_error);
+      if (playerctld_connection != NULL)
+        {
+          playerctld_subscription = g_dbus_connection_signal_subscribe (
+              playerctld_connection, PLAYERCTLD_BUS_NAME,
+              "org.freedesktop.DBus.Properties", "PropertiesChanged",
+              "/org/mpris/MediaPlayer2", PLAYERCTLD_INTERFACE,
+              G_DBUS_SIGNAL_FLAGS_NONE, playerctld_names_changed_callback,
+              NULL, NULL);
+        }
+      else
+        {
+          g_debug ("not following playerctld: %s", bus_error->message);
+          g_clear_error (&bus_error);
         }
 
       g_signal_connect (PLAYERCTL_PLAYER_MANAGER (manager), "name-appeared",
@@ -1765,6 +1857,12 @@ main (int argc, char *argv[])
     }
 
 end:
+  if (playerctld_connection != NULL)
+    {
+      g_dbus_connection_signal_unsubscribe (playerctld_connection,
+                                            playerctld_subscription);
+      g_clear_object (&playerctld_connection);
+    }
   /* XXX: dead code: g_list_free (NULL) is fine, so the first if is
      redundant. The manager guard below is needed with g_object_unref ();
      g_clear_object (&manager) would drop it. */

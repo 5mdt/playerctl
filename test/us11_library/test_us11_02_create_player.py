@@ -2,6 +2,7 @@
 name plus source, or from a `PlayerctlPlayerName`."""
 
 import pytest
+from dbus_next.service import Variant
 
 # Only new_from_name() fills in `player-instance`; new() and new_for_source()
 # just look the player up by name.
@@ -107,22 +108,66 @@ async def test_new_without_source_finds_system_player(gi_run, mpris_factory):
     assert result.stdout.split() == ['dbus-system']
 
 
+# Growth is measured in a child process that, like any program with a main
+# loop, lets GLib run its pending callbacks after every step: GLib queues a
+# cleanup callback on the default main context for every D-Bus proxy it
+# destroys, which a loop that never iterates the context only piles up.
+RSS = """
+def rss_kib():
+    with open('/proc/self/statm') as f:
+        return int(f.read().split()[1]) * 4
+
+
+def settle():
+    context = GLib.MainContext.default()
+    while context.iteration(False):
+        pass
+"""
+
+
 @pytest.mark.timeout(60)
 async def test_creating_players_in_a_loop_does_not_leak(gi_run, mpris_factory):
     # 5mdt/playerctl#51: memory grew by about 2 KiB per created Player
     await mpris_factory('leak')
 
-    result = await gi_run("""
-        def rss_kib():
-            with open('/proc/self/statm') as f:
-                return int(f.read().split()[1]) * 4
-
-        for i in range(2000):
-            Playerctl.Player.new_from_name(Playerctl.list_players()[0])
-            if i == 300:
-                base = rss_kib()
-        out(rss_kib() - base)
-    """)
+    result = await gi_run(
+        RSS
+        + """
+for i in range(2000):
+    player = Playerctl.Player.new_from_name(Playerctl.list_players()[0])
+    player.props.metadata
+    settle()
+    if i == 300:
+        base = rss_kib()
+out(rss_kib() - base)
+"""
+    )
 
     assert result.returncode == 0, result.stderr
     assert int(result.stdout) < 1024, f'grew by {result.stdout} KiB'
+
+
+@pytest.mark.timeout(60)
+async def test_reading_metadata_does_not_leak(gi_run, mpris_factory):
+    # 5mdt/playerctl#51: the `metadata` property kept a reference to the
+    # variant on every read; the player here carries a 1 MiB cover image
+    [mpris] = await mpris_factory('leak')
+    await mpris.set_artist_title('artist', 'title')
+    mpris.metadata['mpris:artUrl'] = Variant('s', 'x' * (1 << 20))
+    await mpris.emit_properties(metadata=mpris.metadata)
+
+    result = await gi_run(
+        RSS
+        + """
+player = Playerctl.Player.new('leak')
+for i in range(500):
+    player.props.metadata
+    settle()
+    if i == 100:
+        base = rss_kib()
+out(rss_kib() - base)
+"""
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout) < 4096, f'grew by {result.stdout} KiB'
