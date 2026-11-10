@@ -17,26 +17,19 @@
  * Copyright © 2014, Tony Crisci and contributors
  */
 
-/* XXX: SUSPICIOUS: strcmp(), strlen(), calloc(), free() and exit() are used
-   without <string.h> and <stdlib.h>. */
 #include <gio/gio.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "playerctl-common.h"
 #include "playerctl-daemon-introspection.h"
 #include "playerctl-daemon-playerctld-introspection.h"
 
-/* XXX: DRY: MPRIS_PATH and the interface name macros repeat those of
-   playerctl-player.c; share them in playerctl-common.h. */
-#define MPRIS_PATH "/org/mpris/MediaPlayer2"
 #define DBUS_NAME "org.freedesktop.DBus"
 #define DBUS_INTERFACE "org.freedesktop.DBus"
 #define DBUS_PATH "/org/freedesktop/DBus"
-#define PLAYER_INTERFACE "org.mpris.MediaPlayer2.Player"
-#define ROOT_INTERFACE "org.mpris.MediaPlayer2"
-#define PLAYLISTS_INTERFACE "org.mpris.MediaPlayer2.Playlists"
-#define TRACKLIST_INTERFACE "org.mpris.MediaPlayer2.TrackList"
 #define PROPERTIES_INTERFACE "org.freedesktop.DBus.Properties"
 
 /**
@@ -101,8 +94,8 @@ struct PlayerctldContext
   GQueue *pending_players;
   gint return_code;
   struct Player *pending_active;
-  // bit I set: optional interface I was announced for the active player
-  guint announced_optional;
+  // [I] is TRUE: optional interface I was announced for the active player
+  gboolean announced_optional[N_OPTIONAL];
 };
 
 /**
@@ -112,10 +105,7 @@ struct PlayerctldContext
 static struct Player *
 player_new (const char *unique, const char *well_known)
 {
-  /* XXX: calloc() and free() are mixed with the GLib allocators, and the
-     result is not checked (also L157, L1277, L1338, L1349); use g_new0()
-     and g_free(). */
-  struct Player *player = calloc (1, sizeof (struct Player));
+  struct Player *player = g_new0 (struct Player, 1);
   player->unique = g_strdup (unique);
   player->well_known = g_strdup (well_known);
   player->cancellable = g_cancellable_new ();
@@ -156,7 +146,7 @@ player_free (struct Player *name)
   g_object_unref (name->cancellable);
   g_free (name->unique);
   g_free (name->well_known);
-  free (name);
+  g_free (name);
 }
 
 /**
@@ -169,12 +159,14 @@ player_is_usable (struct Player *player)
   return player->player_properties != NULL && player->root_properties != NULL;
 }
 
-/* XXX: SUSPICIOUS: player_compare() is a matcher, not an ordering: it
-   returns 1 for "different" and 0 for "equal or not comparable", so a NULL
-   field is a wildcard and a probe with both names NULL matches the first
-   player. Never use it to sort. */
+/*
+ * A GCompareFunc for g_queue_find_custom() that is a matcher, not an ordering:
+ * it returns 1 for "different" and 0 for "equal or not comparable", so a NULL
+ * field is a wildcard and a probe with both names NULL matches the first
+ * player. Never use it to sort.
+ */
 static gint
-player_compare (gconstpointer a, gconstpointer b)
+player_matches (gconstpointer a, gconstpointer b)
 {
   struct Player *fn_a = (struct Player *)a;
   struct Player *fn_b = (struct Player *)b;
@@ -268,30 +260,29 @@ player_update_properties (struct Player *player, const char *interface_name,
         {
           // gets cached separately (never counts as changed)
           player_cache_position (player, prop_value);
-          /* XXX: KISS: goto loop_out only skips the insert below; an
-             if/else removes the label. */
-          goto loop_out;
-        }
-      GVariant *cache_value
-          = g_variant_dict_lookup_value (&cached_properties, key, NULL);
-      if (cache_value != NULL)
-        {
-          if (!g_variant_equal (cache_value, prop_value))
-            {
-              g_debug ("%s: changed property '%s.%s'", player->well_known,
-                       interface_name, key);
-              changed = TRUE;
-            }
-          g_variant_unref (cache_value);
         }
       else
         {
-          g_debug ("%s: new property '%s.%s'", player->well_known,
-                   interface_name, key);
-          changed = TRUE;
+          GVariant *cache_value
+              = g_variant_dict_lookup_value (&cached_properties, key, NULL);
+          if (cache_value != NULL)
+            {
+              if (!g_variant_equal (cache_value, prop_value))
+                {
+                  g_debug ("%s: changed property '%s.%s'", player->well_known,
+                           interface_name, key);
+                  changed = TRUE;
+                }
+              g_variant_unref (cache_value);
+            }
+          else
+            {
+              g_debug ("%s: new property '%s.%s'", player->well_known,
+                       interface_name, key);
+              changed = TRUE;
+            }
+          g_variant_dict_insert_value (&cached_properties, key, prop_value);
         }
-      g_variant_dict_insert_value (&cached_properties, key, prop_value);
-    loop_out:
       g_variant_unref (prop_value);
       g_variant_unref (prop_variant);
       g_variant_unref (key_variant);
@@ -334,7 +325,8 @@ player_update_position_sync (struct Player *player,
   /* FIXME: the reply is assumed to be "(v)" without a type check; another
      reply type makes g_variant_get_child_value() return NULL or warn.
      playerctl-player.c has properties_get_reply_value() for exactly this;
-     share it. The same is assumed for GetAll replies at L1292. */
+     share it. The same is assumed for GetAll replies in
+     player_fetch_properties_sync() and the properties callbacks. */
   GVariant *position_unwrapped = g_variant_get_child_value (reply, 0);
   GVariant *position_variant = g_variant_get_variant (position_unwrapped);
   if (g_variant_is_of_type (position_variant, G_VARIANT_TYPE_INT64))
@@ -381,22 +373,17 @@ context_player_names_to_gvariant (struct PlayerctldContext *ctx)
 {
   GVariantBuilder builder;
   g_variant_builder_init (&builder, G_VARIANT_TYPE_STRING_ARRAY);
-  guint len = g_queue_get_length (ctx->players);
-  /* XXX: KISS: the queue is rotated (pop head, push tail) just to read it;
-     walk the GList instead. The index is an int against a guint length. */
-  for (int i = 0; i < len; ++i)
+  for (GList *item = ctx->players->head; item != NULL; item = item->next)
     {
-      struct Player *current = g_queue_pop_head (ctx->players);
+      struct Player *current = item->data;
       g_variant_builder_add_value (&builder,
                                    g_variant_new_string (current->well_known));
-      g_queue_push_tail (ctx->players, current);
     }
 
   return g_variant_builder_end (&builder);
 }
 
-static const char *const playerctld_interfaces[]
-    = { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY };
+static const char *const playerctld_interfaces[] = PLAYERCTLD_INTERFACES;
 
 /**
  * Emit PropertiesChanged for one interface; CHANGED (NULL for none) is
@@ -448,24 +435,20 @@ context_emit_optional_properties (struct PlayerctldContext *ctx,
 {
   for (int i = 0; i < N_OPTIONAL; i++)
     {
-      GVariant *properties = player ? player->optional_properties[i] : NULL;
-      /* XXX: KISS: the announced_optional bit mask and the "player ? a : b"
-         ternaries are hard to follow; a gboolean array and a player != NULL
-         test would be clearer. */
-      guint bit = 1u << i;
-      if (properties == NULL && player != NULL
-          && !(ctx->announced_optional & bit))
+      GVariant *properties
+          = player != NULL ? player->optional_properties[i] : NULL;
+      if (properties == NULL && player != NULL && !ctx->announced_optional[i])
         {
           continue;
         }
       if (!context_emit_properties_changed (
               ctx, optional_interfaces[i].name, properties,
-              properties ? NULL : optional_interfaces[i].invalidated, error))
+              properties != NULL ? NULL : optional_interfaces[i].invalidated,
+              error))
         {
           return FALSE;
         }
-      ctx->announced_optional = properties ? ctx->announced_optional | bit
-                                           : ctx->announced_optional & ~bit;
+      ctx->announced_optional[i] = properties != NULL;
     }
   return TRUE;
 }
@@ -504,6 +487,31 @@ context_emit_player_properties (struct PlayerctldContext *ctx,
       g_variant_new ("(x)", player->position), error);
 }
 
+/**
+ * Emit the ActivePlayerChangeBegin or ActivePlayerChangeEnd signal on every
+ * playerctld interface, stopping at the first failure
+ */
+static gboolean
+context_emit_active_player_change_signal (struct PlayerctldContext *ctx,
+                                          const char *signal_name,
+                                          struct Player *player,
+                                          GError **error)
+{
+  for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
+    {
+      if (!g_dbus_connection_emit_signal (
+              ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
+              signal_name,
+              g_variant_new ("(s)",
+                             (player != NULL ? player->well_known : "")),
+              error))
+        {
+          return FALSE;
+        }
+    }
+  return TRUE;
+}
+
 static void
 context_emit_active_player_changed (struct PlayerctldContext *ctx,
                                     GError **error)
@@ -512,19 +520,11 @@ context_emit_active_player_changed (struct PlayerctldContext *ctx,
 
   struct Player *player = g_queue_peek_head (ctx->players);
 
-  /* XXX: DRY: the Begin and End signal loops (to L565) are copies. If a
-     Begin emit fails halfway the clients get no matching End. */
-  for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
+  /* XXX: If a Begin emit fails halfway the clients get no matching End. */
+  if (!context_emit_active_player_change_signal (
+          ctx, "ActivePlayerChangeBegin", player, error))
     {
-      if (!g_dbus_connection_emit_signal (
-              ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
-              "ActivePlayerChangeBegin",
-              g_variant_new ("(s)",
-                             (player != NULL ? player->well_known : "")),
-              error))
-        {
-          return;
-        }
+      return;
     }
 
   if (player != NULL && !player_is_usable (player))
@@ -550,18 +550,8 @@ context_emit_active_player_changed (struct PlayerctldContext *ctx,
           return;
         }
     }
-  for (gsize i = 0; i < G_N_ELEMENTS (playerctld_interfaces); i++)
-    {
-      if (!g_dbus_connection_emit_signal (
-              ctx->connection, NULL, MPRIS_PATH, playerctld_interfaces[i],
-              "ActivePlayerChangeEnd",
-              g_variant_new ("(s)",
-                             (player != NULL ? player->well_known : "")),
-              error))
-        {
-          return;
-        }
-    }
+  context_emit_active_player_change_signal (ctx, "ActivePlayerChangeEnd",
+                                            player, error);
 }
 
 static struct Player *
@@ -573,14 +563,14 @@ context_find_player (struct PlayerctldContext *ctx, const char *unique,
     .well_known = (char *)well_known,
   };
   GList *found
-      = g_queue_find_custom (ctx->players, &find_name, player_compare);
+      = g_queue_find_custom (ctx->players, &find_name, player_matches);
   if (found != NULL)
     {
       return (struct Player *)found->data;
     }
 
   found
-      = g_queue_find_custom (ctx->pending_players, &find_name, player_compare);
+      = g_queue_find_custom (ctx->pending_players, &find_name, player_matches);
   if (found != NULL)
     {
       return (struct Player *)found->data;
@@ -595,15 +585,21 @@ context_get_active_player (struct PlayerctldContext *ctx)
   return g_queue_peek_head (ctx->players);
 }
 
-/* XXX: DRY: context_set_active_player(), context_add_player() and
-   context_add_pending_player() all start with the same two g_queue_remove()
-   calls. */
+/**
+ * Take the player out of both queues
+ */
+static void
+context_unlink_player (struct PlayerctldContext *ctx, struct Player *player)
+{
+  g_queue_remove (ctx->players, player);
+  g_queue_remove (ctx->pending_players, player);
+}
+
 static void
 context_set_active_player (struct PlayerctldContext *ctx,
                            struct Player *player)
 {
-  g_queue_remove (ctx->players, player);
-  g_queue_remove (ctx->pending_players, player);
+  context_unlink_player (ctx, player);
   g_queue_push_head (ctx->players, player);
   ctx->pending_active = NULL;
 }
@@ -611,8 +607,7 @@ context_set_active_player (struct PlayerctldContext *ctx,
 static void
 context_add_player (struct PlayerctldContext *ctx, struct Player *player)
 {
-  g_queue_remove (ctx->players, player);
-  g_queue_remove (ctx->pending_players, player);
+  context_unlink_player (ctx, player);
   g_queue_push_tail (ctx->players, player);
 }
 
@@ -620,16 +615,14 @@ static void
 context_add_pending_player (struct PlayerctldContext *ctx,
                             struct Player *player)
 {
-  g_queue_remove (ctx->players, player);
-  g_queue_remove (ctx->pending_players, player);
+  context_unlink_player (ctx, player);
   g_queue_push_tail (ctx->pending_players, player);
 }
 
 static void
 context_remove_player (struct PlayerctldContext *ctx, struct Player *player)
 {
-  g_queue_remove (ctx->players, player);
-  g_queue_remove (ctx->pending_players, player);
+  context_unlink_player (ctx, player);
   if (ctx->pending_active == player)
     {
       ctx->pending_active = NULL;
@@ -648,24 +641,14 @@ context_unrotate_queue (struct PlayerctldContext *ctx)
 }
 
 /**
- * Returns the newly activated player
+ * Returns the active player; when it is not PREVIOUS, update its position and
+ * announce it
  */
-/* XXX: DRY: context_shift_active_player() and
-   context_unshift_active_player() (L690) end with the same position update
-   plus emit block, which is repeated at L1399, L1456 and L1561. One helper
-   would do. */
 static struct Player *
-context_shift_active_player (struct PlayerctldContext *ctx)
+context_announce_if_changed (struct PlayerctldContext *ctx,
+                             struct Player *previous)
 {
   GError *error = NULL;
-  struct Player *previous = context_get_active_player (ctx);
-
-  if (previous == NULL)
-    {
-      return NULL;
-    }
-  context_remove_player (ctx, previous);
-  context_add_player (ctx, previous);
   struct Player *current = context_get_active_player (ctx);
   if (current != previous)
     {
@@ -686,10 +669,31 @@ context_shift_active_player (struct PlayerctldContext *ctx)
   return current;
 }
 
+/**
+ * Returns the newly activated player
+ */
+/* XXX: DRY: name_appeared(), name_vanished() and
+   player_signal_proxy_callback() repeat the same position update plus emit
+   block; name_vanished() and player_signal_proxy_callback() use different
+   warning texts and a position reset, so they cannot share
+   context_announce_if_changed() without changing the warnings. */
+static struct Player *
+context_shift_active_player (struct PlayerctldContext *ctx)
+{
+  struct Player *previous = context_get_active_player (ctx);
+
+  if (previous == NULL)
+    {
+      return NULL;
+    }
+  context_remove_player (ctx, previous);
+  context_add_player (ctx, previous);
+  return context_announce_if_changed (ctx, previous);
+}
+
 static struct Player *
 context_unshift_active_player (struct PlayerctldContext *ctx)
 {
-  GError *error = NULL;
   struct Player *previous = context_get_active_player (ctx);
 
   if (previous == NULL)
@@ -699,24 +703,7 @@ context_unshift_active_player (struct PlayerctldContext *ctx)
 
   context_unrotate_queue (ctx);
 
-  struct Player *current = context_get_active_player (ctx);
-  if (current != previous)
-    {
-      player_update_position_sync (current, ctx, &error);
-      if (error != NULL)
-        {
-          g_warning ("could not update player position: %s", error->message);
-          g_clear_error (&error);
-        }
-      context_emit_active_player_changed (ctx, &error);
-      if (error != NULL)
-        {
-          g_warning ("could not emit active player change: %s",
-                     error->message);
-          g_clear_error (&error);
-        }
-    }
-  return current;
+  return context_announce_if_changed (ctx, previous);
 }
 
 /* playerctld_introspection_xml: the playerctld interface under its own and the
@@ -873,68 +860,59 @@ playerctld_method_call_func (GDBusConnection *connection, const char *sender,
 
   struct PlayerctldContext *ctx = user_data;
   struct Player *active_player;
+  /* STYLE: doc-style comments inside a function body (also in
+     active_player_get_properties_async_callback()) look like gtk-doc but document nothing. */
+  static const struct
+  {
+    const char *name;
+    struct Player *(*func) (struct PlayerctldContext *ctx);
+  } methods[] = {
+    /**
+     * playerctld.Shift
+     * Move the active player to the back of the queue,
+     * return the new active player
+     */
+    { "Shift", context_shift_active_player },
+    /**
+     * playerctld.Unshift
+     * Set the least recently active player to active,
+     * return that player. Inverse of Shift.
+     */
+    { "Unshift", context_unshift_active_player },
+  };
   warn_if_legacy_interface (interface_name, sender);
-  /* XXX: KISS: both error strings are allocated on every call, used or not. */
-  g_autofree gchar *no_active_player_error
-      = g_strdup_printf ("%s.NoActivePlayer", interface_name);
+
+  for (gsize i = 0; i < G_N_ELEMENTS (methods); i++)
+    {
+      if (strcmp (method_name, methods[i].name) != 0)
+        {
+          continue;
+        }
+      active_player = methods[i].func (ctx);
+      if (active_player != NULL)
+        {
+          g_dbus_method_invocation_return_value (
+              invocation, g_variant_new ("(s)", active_player->well_known));
+        }
+      else
+        {
+          g_debug ("no active player, returning error");
+          g_autofree gchar *no_active_player_error
+              = g_strdup_printf ("%s.NoActivePlayer", interface_name);
+          g_dbus_method_invocation_return_dbus_error (
+              invocation, no_active_player_error,
+              "No player is being controlled by playerctld");
+        }
+      return;
+    }
+
+  /**
+   * Fail on unknown methods.
+   */
   g_autofree gchar *invalid_method_error
       = g_strdup_printf ("%s.InvalidMethod", interface_name);
-
-  if (strcmp (method_name, "Shift") == 0)
-    {
-      /* STYLE: doc-style comments inside a function body (also L1089,
-         L1110) look like gtk-doc but document nothing. */
-      /**
-       * playerctld.Shift
-       * Move the active player to the back of the queue,
-       * return the new active player
-       */
-      /* XXX: DRY: the Shift and Unshift branches differ only in the
-         function called; a table of name and function removes the else-if
-         chain. */
-      active_player = context_shift_active_player (ctx);
-      if (active_player != NULL)
-        {
-          g_dbus_method_invocation_return_value (
-              invocation, g_variant_new ("(s)", active_player->well_known));
-        }
-      else
-        {
-          g_debug ("no active player, returning error");
-          g_dbus_method_invocation_return_dbus_error (
-              invocation, no_active_player_error,
-              "No player is being controlled by playerctld");
-        }
-    }
-  else if (strcmp (method_name, "Unshift") == 0)
-    {
-      /**
-       * playerctld.Unshift
-       * Set the least recently active player to active,
-       * return that player. Inverse of Shift.
-       */
-      active_player = context_unshift_active_player (ctx);
-      if (active_player != NULL)
-        {
-          g_dbus_method_invocation_return_value (
-              invocation, g_variant_new ("(s)", active_player->well_known));
-        }
-      else
-        {
-          g_debug ("no active player, returning error");
-          g_dbus_method_invocation_return_dbus_error (
-              invocation, no_active_player_error,
-              "No player is being controlled by playerctld");
-        }
-    }
-  else
-    {
-      /**
-       * Fail on unknown methods.
-       */
-      g_dbus_method_invocation_return_dbus_error (
-          invocation, invalid_method_error, "This method is not valid");
-    }
+  g_dbus_method_invocation_return_dbus_error (invocation, invalid_method_error,
+                                              "This method is not valid");
 }
 
 /**
@@ -977,8 +955,7 @@ static GDBusInterfaceVTable vtable_playerctld = {
  * That is to say, the four MPRIS interfaces as well as the playerctld
  * interfaces
  */
-/* XXX: DRY: six copies of register_object plus warning (to L1220); loop
-   over a table. If one fails the daemon carries on half-registered and
+/* XXX: If one registration fails the daemon carries on half-registered and
    still owns the bus name. */
 static void
 on_bus_acquired (GDBusConnection *connection, const char *name,
@@ -986,59 +963,29 @@ on_bus_acquired (GDBusConnection *connection, const char *name,
 {
   GError *error = NULL;
   struct PlayerctldContext *ctx = user_data;
+  const struct
+  {
+    GDBusInterfaceInfo *info;
+    const GDBusInterfaceVTable *vtable;
+  } objects[] = {
+    { ctx->root_interface_info, &vtable_mpris },
+    { ctx->player_interface_info, &vtable_mpris },
+    { ctx->playlists_interface_info, &vtable_mpris },
+    { ctx->tracklist_interface_info, &vtable_mpris },
+    { ctx->playerctld_interface_info, &vtable_playerctld },
+    { ctx->playerctld_legacy_interface_info, &vtable_playerctld },
+  };
 
-  g_dbus_connection_register_object (connection, MPRIS_PATH,
-                                     ctx->root_interface_info, &vtable_mpris,
-                                     user_data, NULL, &error);
-  if (error != NULL)
+  for (gsize i = 0; i < G_N_ELEMENTS (objects); i++)
     {
-      g_warning ("%s", error->message);
-      g_clear_error (&error);
-    }
-
-  g_dbus_connection_register_object (connection, MPRIS_PATH,
-                                     ctx->player_interface_info, &vtable_mpris,
-                                     user_data, NULL, &error);
-  if (error != NULL)
-    {
-      g_warning ("%s", error->message);
-      g_clear_error (&error);
-    }
-
-  g_dbus_connection_register_object (connection, MPRIS_PATH,
-                                     ctx->playlists_interface_info,
-                                     &vtable_mpris, user_data, NULL, &error);
-  if (error != NULL)
-    {
-      g_warning ("%s", error->message);
-      g_clear_error (&error);
-    }
-
-  g_dbus_connection_register_object (connection, MPRIS_PATH,
-                                     ctx->tracklist_interface_info,
-                                     &vtable_mpris, user_data, NULL, &error);
-  if (error != NULL)
-    {
-      g_warning ("%s", error->message);
-      g_clear_error (&error);
-    }
-
-  g_dbus_connection_register_object (
-      connection, MPRIS_PATH, ctx->playerctld_interface_info,
-      &vtable_playerctld, user_data, NULL, &error);
-  if (error != NULL)
-    {
-      g_warning ("%s", error->message);
-      g_clear_error (&error);
-    }
-
-  g_dbus_connection_register_object (
-      connection, MPRIS_PATH, ctx->playerctld_legacy_interface_info,
-      &vtable_playerctld, user_data, NULL, &error);
-  if (error != NULL)
-    {
-      g_warning ("%s", error->message);
-      g_clear_error (&error);
+      g_dbus_connection_register_object (connection, MPRIS_PATH,
+                                         objects[i].info, objects[i].vtable,
+                                         user_data, NULL, &error);
+      if (error != NULL)
+        {
+          g_warning ("%s", error->message);
+          g_clear_error (&error);
+        }
     }
 }
 
@@ -1065,8 +1012,8 @@ on_name_lost (GDBusConnection *connection, const char *name,
   g_main_loop_quit (ctx->loop);
 }
 
-/* STYLE: bool here and gboolean elsewhere in the file (also L164, L1281,
-   L1440). */
+/* STYLE: bool here and gboolean elsewhere in the file (also
+   player_is_usable() and the start-up scan in main()). */
 static bool
 well_known_name_is_managed (const char *name)
 {
@@ -1096,7 +1043,7 @@ active_player_get_properties_async_callback (GObject *source_object,
     {
       // the player was freed meanwhile
       g_clear_error (&error);
-      free (data);
+      g_free (data);
       return;
     }
   struct Player *player = data->player;
@@ -1124,11 +1071,9 @@ active_player_get_properties_async_callback (GObject *source_object,
       // normally in by then
       if (!player_is_usable (player))
         {
-          /* XXX: KISS: goto out only skips the error block and the free;
-             data is freed in three places (L1277, L1338). */
-          goto out;
+          // nothing to do yet
         }
-      if (player == ctx->pending_active)
+      else if (player == ctx->pending_active)
         {
           context_set_active_player (ctx, player);
           context_emit_active_player_changed (ctx, &error);
@@ -1156,8 +1101,7 @@ active_player_get_properties_async_callback (GObject *source_object,
       context_remove_player (ctx, player);
       g_clear_error (&error);
     }
-out:
-  free (data);
+  g_free (data);
 }
 
 /**
@@ -1168,7 +1112,7 @@ player_request_properties (struct PlayerctldContext *ctx,
                            struct Player *player, const char *interface_name)
 {
   struct GetPropertiesUserData *data
-      = calloc (1, sizeof (struct GetPropertiesUserData));
+      = g_new0 (struct GetPropertiesUserData, 1);
   data->interface_name = interface_name;
   data->player = player;
   data->ctx = ctx;
@@ -1179,9 +1123,109 @@ player_request_properties (struct PlayerctldContext *ctx,
       active_player_get_properties_async_callback, data);
 }
 
+/**
+ * A player owns the name: a known player becomes the active one, an unknown
+ * one is queued as pending active until its properties arrive
+ */
 static void
-/* XXX: KISS: five gotos and four nesting levels; split into name_appeared()
-   and name_vanished() helpers. */
+name_appeared (struct PlayerctldContext *ctx, const gchar *name,
+               const gchar *new_owner)
+{
+  GError *error = NULL;
+
+  g_debug ("player name appeared: unique=%s, well_known=%s", new_owner, name);
+  // see if it's already managed
+  struct Player *player = context_find_player (ctx, NULL, name);
+  if (player != NULL)
+    {
+      g_debug ("player already managed, setting to active");
+      player_set_unique_name (player, new_owner);
+      if (player != context_get_active_player (ctx))
+        {
+          context_set_active_player (ctx, player);
+          player_update_position_sync (player, ctx, &error);
+          if (error != NULL)
+            {
+              g_warning ("could not update player position: %s",
+                         error->message);
+              g_clear_error (&error);
+            }
+          context_emit_active_player_changed (ctx, &error);
+          if (error != NULL)
+            {
+              g_warning ("could not emit active player change: %s",
+                         error->message);
+              g_clear_error (&error);
+            }
+        }
+      return;
+    }
+
+  g_debug ("setting player to pending active");
+  player = player_new (new_owner, name);
+  context_add_pending_player (ctx, player);
+  ctx->pending_active = player;
+
+  // the optional ones first: a player answers in order, so they are in
+  // by the time the mandatory ones promote the player
+  for (int i = 0; i < N_OPTIONAL; i++)
+    {
+      player_request_properties (ctx, player, optional_interfaces[i].name);
+    }
+  player_request_properties (ctx, player, PLAYER_INTERFACE);
+  player_request_properties (ctx, player, ROOT_INTERFACE);
+}
+
+/**
+ * The name has no owner any more: forget the player and, when it was the
+ * active one, announce the next one
+ */
+static void
+name_vanished (struct PlayerctldContext *ctx, const gchar *name)
+{
+  GError *error = NULL;
+  struct Player *player = context_find_player (ctx, NULL, name);
+  if (player == NULL)
+    {
+      g_debug ("%s", "name not found in queue");
+      return;
+    }
+
+  bool is_active = (player == context_get_active_player (ctx));
+
+  g_debug ("removing name from players: unique=%s, well_known=%s",
+           player->unique, player->well_known);
+
+  context_remove_player (ctx, player);
+  player_free (player);
+
+  if (!is_active)
+    {
+      return;
+    }
+
+  struct Player *active_player = context_get_active_player (ctx);
+  if (active_player != NULL)
+    {
+      player_update_position_sync (active_player, ctx, &error);
+      if (error != NULL)
+        {
+          active_player->position = 0L;
+          g_warning ("could not update player position for player '%s': %s",
+                     active_player->well_known, error->message);
+          g_clear_error (&error);
+        }
+    }
+  context_emit_active_player_changed (ctx, &error);
+  if (error != NULL)
+    {
+      g_warning ("could not emit player properties changed signal: %s",
+                 error->message);
+      g_clear_error (&error);
+    }
+}
+
+static void
 name_owner_changed_signal_callback (GDBusConnection *connection,
                                     const gchar *sender_name,
                                     const gchar *object_path,
@@ -1190,111 +1234,27 @@ name_owner_changed_signal_callback (GDBusConnection *connection,
                                     GVariant *parameters, gpointer user_data)
 {
   struct PlayerctldContext *ctx = user_data;
-  GError *error = NULL;
   GVariant *name_variant = g_variant_get_child_value (parameters, 0);
   GVariant *new_owner_variant = g_variant_get_child_value (parameters, 2);
   const gchar *name = g_variant_get_string (name_variant, 0);
   const gchar *new_owner = g_variant_get_string (new_owner_variant, 0);
 
-  if (!well_known_name_is_managed (name))
+  if (well_known_name_is_managed (name))
     {
-      goto out;
-    }
+      g_debug ("got name owner changed signal: name='%s', owner='%s'", name,
+               new_owner);
 
-  g_debug ("got name owner changed signal: name='%s', owner='%s'", name,
-           new_owner);
-
-  /* STYLE: strlen (x) > 0 as an emptiness test; use *x != '\0'. */
-  if (strlen (new_owner) > 0)
-    {
-      g_debug ("player name appeared: unique=%s, well_known=%s", new_owner,
-               name);
-      // see if it's already managed
-      struct Player *player = context_find_player (ctx, NULL, name);
-      if (player != NULL)
+      /* STYLE: strlen (x) > 0 as an emptiness test; use *x != '\0'. */
+      if (strlen (new_owner) > 0)
         {
-          g_debug ("player already managed, setting to active");
-          player_set_unique_name (player, new_owner);
-          if (player != context_get_active_player (ctx))
-            {
-              context_set_active_player (ctx, player);
-              player_update_position_sync (player, ctx, &error);
-              if (error != NULL)
-                {
-                  g_warning ("could not update player position: %s",
-                             error->message);
-                  g_clear_error (&error);
-                }
-              context_emit_active_player_changed (ctx, &error);
-              if (error != NULL)
-                {
-                  g_warning ("could not emit active player change: %s",
-                             error->message);
-                  g_clear_error (&error);
-                }
-            }
-          goto out;
+          name_appeared (ctx, name, new_owner);
         }
-
-      g_debug ("setting player to pending active");
-      player = player_new (new_owner, name);
-      context_add_pending_player (ctx, player);
-      ctx->pending_active = player;
-
-      // the optional ones first: a player answers in order, so they are in
-      // by the time the mandatory ones promote the player
-      for (int i = 0; i < N_OPTIONAL; i++)
+      else
         {
-          player_request_properties (ctx, player, optional_interfaces[i].name);
-        }
-      player_request_properties (ctx, player, PLAYER_INTERFACE);
-      player_request_properties (ctx, player, ROOT_INTERFACE);
-    }
-  else
-    {
-      struct Player *player = context_find_player (ctx, NULL, name);
-      if (player == NULL)
-        {
-          g_debug ("%s", "name not found in queue");
-          goto out;
-        }
-
-      bool is_active = (player == context_get_active_player (ctx));
-
-      g_debug ("removing name from players: unique=%s, well_known=%s",
-               player->unique, player->well_known);
-
-      context_remove_player (ctx, player);
-      player_free (player);
-
-      if (!is_active)
-        {
-          goto out;
-        }
-
-      struct Player *active_player = context_get_active_player (ctx);
-      if (active_player != NULL)
-        {
-          player_update_position_sync (active_player, ctx, &error);
-          if (error != NULL)
-            {
-              active_player->position = 0L;
-              g_warning (
-                  "could not update player position for player '%s': %s",
-                  active_player->well_known, error->message);
-              g_clear_error (&error);
-            }
-        }
-      context_emit_active_player_changed (ctx, &error);
-      if (error != NULL)
-        {
-          g_warning ("could not emit player properties changed signal: %s",
-                     error->message);
-          g_clear_error (&error);
+          name_vanished (ctx, name);
         }
     }
 
-out:
   g_variant_unref (name_variant);
   g_variant_unref (new_owner_variant);
 }
@@ -1434,10 +1394,11 @@ parse_setup_options (int argc, char **argv, GError **error)
 
   success = g_option_context_parse (context, &argc, &argv, error);
 
+  const gchar *command = command_arg != NULL ? command_arg[0] : NULL;
   if (success && command_arg
-      && (g_strcmp0 (command_arg[0], "shift") != 0
-          && g_strcmp0 (command_arg[0], "unshift") != 0
-          && g_strcmp0 (command_arg[0], "daemon") != 0))
+      && (g_strcmp0 (command, "shift") != 0
+          && g_strcmp0 (command, "unshift") != 0
+          && g_strcmp0 (command, "daemon") != 0))
     {
       /* XXX: KISS: the option parser prints the help and calls exit (1)
          itself; return an error to main() instead. */
@@ -1483,7 +1444,7 @@ playercmd_call (GDBusConnection *connection, const char *method)
 }
 
 /* STYLE: playercmd_shift(), playercmd_unshift() and
-   start_playerctld_dbus_activation() (L1690) are not static and have no
+   start_playerctld_dbus_activation() are not static and have no
    prototype (-Wmissing-prototypes); make them static. */
 int
 playercmd_shift (GDBusConnection *connection)
@@ -1496,6 +1457,13 @@ playercmd_unshift (GDBusConnection *connection)
 {
   return playercmd_call (connection, "Unshift");
 }
+
+// the values of the reply of StartServiceByName
+enum start_service_reply
+{
+  START_REPLY_SUCCESS = 1,
+  START_REPLY_ALREADY_RUNNING = 2,
+};
 
 enum activation_result
 {
@@ -1518,13 +1486,9 @@ start_playerctld_dbus_activation (GDBusConnection *connection, GError **error)
       G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &tmp_error);
   if (tmp_error != NULL)
     {
-      /* XXX: SUSPICIOUS: matching the error by a message prefix is brittle;
-         g_error_matches () with G_DBUS_ERROR_SERVICE_UNKNOWN is the API for
-         it. */
       // NOLINTBEGIN(bugprone-assignment-in-if-condition): glib macro
-      if (g_str_has_prefix (
-              tmp_error->message,
-              "GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown"))
+      if (g_error_matches (tmp_error, G_DBUS_ERROR,
+                           G_DBUS_ERROR_SERVICE_UNKNOWN))
         {
           g_clear_error (&tmp_error);
           return ACTIVATION_NOT_SUPPORTED;
@@ -1540,14 +1504,12 @@ start_playerctld_dbus_activation (GDBusConnection *connection, GError **error)
   g_variant_unref (child);
   g_variant_unref (result);
 
-  /* XXX: SUSPICIOUS: 1 and 2 are DBUS_START_REPLY_SUCCESS and
-     DBUS_START_REPLY_ALREADY_RUNNING; and an unknown code is reported as
-     success. */
-  if (result_code == 1)
+  /* XXX: SUSPICIOUS: an unknown code is reported as success. */
+  if (result_code == START_REPLY_SUCCESS)
     {
       return ACTIVATION_SUCCESS;
     }
-  if (result_code == 2)
+  if (result_code == START_REPLY_ALREADY_RUNNING)
     {
       return ACTIVATION_ALREADY_RUNNING;
     }
@@ -1558,9 +1520,312 @@ start_playerctld_dbus_activation (GDBusConnection *connection, GError **error)
   return ACTIVATION_SUCCESS;
 }
 
+/* XXX: g_error() aborts, so a mismatch gives a core dump instead of a
+   message. */
+static GDBusInterfaceInfo *
+lookup_interface_or_abort (GDBusNodeInfo *node_info,
+                           const char *interface_name,
+                           const char *missing_message)
+{
+  GDBusInterfaceInfo *info
+      = g_dbus_node_info_lookup_interface (node_info, interface_name);
+  if (info == NULL)
+    {
+      g_error ("%s", missing_message);
+    }
+  return info;
+}
+
+/**
+ * Open the connection to the session bus; prints the reason and returns FALSE
+ * on failure
+ */
+static gboolean
+connect_to_bus (struct PlayerctldContext *ctx)
+{
+  GError *error = NULL;
+  GDBusConnectionFlags connection_flags
+      = G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT
+        | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION;
+
+  ctx->bus_address
+      = g_dbus_address_get_for_bus_sync (G_BUS_TYPE_SESSION, NULL, &error);
+  if (error != NULL)
+    {
+      /* STYLE: the g_printerr messages in connect_to_bus() and
+         load_introspection() have no trailing newline. */
+      g_printerr ("could not get bus address: %s", error->message);
+      g_clear_error (&error);
+      return FALSE;
+    }
+  ctx->connection = g_dbus_connection_new_for_address_sync (
+      ctx->bus_address, connection_flags, NULL, NULL, &error);
+  if (error != NULL)
+    {
+      g_printerr ("could not connect to message bus: %s", error->message);
+      g_clear_error (&error);
+      return FALSE;
+    }
+
+  g_debug ("connected to dbus: %s",
+           g_dbus_connection_get_unique_name (ctx->connection));
+  return TRUE;
+}
+
+/**
+ * The "daemon" command: activate playerctld through the bus; returns the exit
+ * code
+ */
+static int
+run_activation (GDBusConnection *connection)
+{
+  GError *error = NULL;
+  enum activation_result result
+      = start_playerctld_dbus_activation (connection, &error);
+  if (error != NULL)
+    {
+      g_printerr ("could not activate playerctld service: %s\n",
+                  error->message);
+      g_clear_error (&error);
+      return 1;
+    }
+
+  switch (result)
+    {
+    case ACTIVATION_NOT_SUPPORTED:
+      // TODO: find some other way to daemonize the process
+      g_printerr ("%s\n", "org.freedesktop.DBus.Error.ServiceUnknown: "
+                          "DBus service activation "
+                          "of playerctld is not supported");
+      return 1;
+    case ACTIVATION_SUCCESS:
+      g_printerr (
+          "%s\n",
+          "playerctld successfully started with DBus service activation");
+      break;
+    case ACTIVATION_ALREADY_RUNNING:
+      g_printerr ("%s\n", "playerctld DBus service is already running");
+      break;
+    case ACTIVATION_FAIL:
+      // not reached, already handled in the error condition
+      return 1;
+    }
+  return 0;
+}
+
+/**
+ * Load introspection data and split into separate interfaces; the node infos
+ * are owned by the caller even on failure. Prints the reason and returns FALSE
+ * on failure.
+ */
+static gboolean
+load_introspection (struct PlayerctldContext *ctx,
+                    GDBusNodeInfo **mpris_introspection_data,
+                    GDBusNodeInfo **playerctld_introspection_data)
+{
+  GError *error = NULL;
+
+  *mpris_introspection_data
+      = g_dbus_node_info_new_for_xml (mpris_introspection_xml, &error);
+  if (error != NULL)
+    {
+      g_printerr ("%s", error->message);
+      g_clear_error (&error);
+      return FALSE;
+    }
+  *playerctld_introspection_data
+      = g_dbus_node_info_new_for_xml (playerctld_introspection_xml, &error);
+  if (error != NULL)
+    {
+      g_printerr ("%s", error->message);
+      g_clear_error (&error);
+      return FALSE;
+    }
+  ctx->root_interface_info = lookup_interface_or_abort (
+      *mpris_introspection_data, ROOT_INTERFACE,
+      "Missing introspection data for MPRIS root interface");
+  ctx->player_interface_info = lookup_interface_or_abort (
+      *mpris_introspection_data, PLAYER_INTERFACE,
+      "Missing introspection data for MPRIS player interface");
+  ctx->playlists_interface_info = lookup_interface_or_abort (
+      *mpris_introspection_data, PLAYLISTS_INTERFACE,
+      "Missing introspection data for MPRIS playlists interface");
+  ctx->tracklist_interface_info = lookup_interface_or_abort (
+      *mpris_introspection_data, TRACKLIST_INTERFACE,
+      "Missing introspection data for MPRIS tracklist interface");
+  ctx->playerctld_interface_info = lookup_interface_or_abort (
+      *playerctld_introspection_data, PLAYERCTLD_INTERFACE,
+      "Missing introspection data for the playerctld interface");
+  ctx->playerctld_legacy_interface_info = lookup_interface_or_abort (
+      *playerctld_introspection_data, PLAYERCTLD_INTERFACE_LEGACY,
+      "Missing introspection data for the legacy playerctld interface");
+  return TRUE;
+}
+
+/**
+ * Fetch the properties of the player that owns the (managed) well-known name
+ * and queue it as the active one; a player without the mandatory properties
+ * is dropped
+ */
+static void
+scan_player (struct PlayerctldContext *ctx, const gchar *name)
+{
+  GError *error = NULL;
+
+  // org.mpris.MediaPlayer2.Player properties
+  GVariant *owner_reply = g_dbus_connection_call_sync (
+      ctx->connection, DBUS_NAME, DBUS_PATH, DBUS_INTERFACE, "GetNameOwner",
+      g_variant_new ("(s)", name), NULL, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1,
+      NULL, &error);
+  if (error != NULL)
+    {
+      g_warning ("could not get owner for name %s: %s", name, error->message);
+      g_clear_error (&error);
+      return;
+    }
+
+  GVariant *owner_reply_value = g_variant_get_child_value (owner_reply, 0);
+  struct Player *player
+      = player_new (g_variant_get_string (owner_reply_value, 0), name);
+  g_variant_unref (owner_reply_value);
+  g_variant_unref (owner_reply);
+
+  // org.mpris.MediaPlayer2.Player and org.mpris.MediaPlayer2
+  // properties are mandatory, get rid of "players" who don't support
+  // them
+  if (!player_fetch_properties_sync (player, ctx, PLAYER_INTERFACE, &error)
+      || !player_fetch_properties_sync (player, ctx, ROOT_INTERFACE, &error))
+    {
+      g_warning ("could not get properties for player: %s",
+                 player->well_known);
+      player_free (player);
+      g_clear_error (&error);
+      return;
+    }
+
+  // the other interfaces are optional, so we can keep the player
+  // around
+  for (int j = 0; j < N_OPTIONAL; j++)
+    {
+      if (!player_fetch_properties_sync (player, ctx,
+                                         optional_interfaces[j].name, &error))
+        {
+          g_warning ("could not get %s properties for player: %s",
+                     optional_interfaces[j].name, player->well_known);
+          g_clear_error (&error);
+        }
+    }
+
+  g_debug ("found player: %s", player->well_known);
+  /* XXX: SUSPICIOUS: g_queue_push_head() puts the last listed name
+     in front, so after start-up the active player is whatever
+     ListNames returned last, not the most recently active one. */
+  g_queue_push_head (ctx->players, player);
+}
+
+/**
+ * Get all names of players (names that start with "org.mpris.MediaPlayer2.")
+ * then fetch their properties on all supported interfaces. Returns FALSE
+ * (after a warning) when the names cannot be listed.
+ */
+static gboolean
+scan_players (struct PlayerctldContext *ctx)
+{
+  GError *error = NULL;
+
+  /* FIXME: race: ListNames is read here but the NameOwnerChanged and player
+     signal subscriptions only start after the scan, so a player appearing in
+     between is never seen. Subscribe first, then list. */
+  GVariant *names_reply = g_dbus_connection_call_sync (
+      ctx->connection, DBUS_NAME, DBUS_PATH, DBUS_INTERFACE, "ListNames", NULL,
+      NULL, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
+  if (error != NULL)
+    {
+      g_warning ("could not call ListNames: %s", error->message);
+      g_clear_error (&error);
+      return FALSE;
+    }
+  GVariant *names_reply_value = g_variant_get_child_value (names_reply, 0);
+  gsize nnames;
+  const gchar **names = g_variant_get_strv (names_reply_value, &nnames);
+  /* STYLE: int index against gsize nnames. */
+  for (int i = 0; i < nnames; ++i)
+    {
+      if (well_known_name_is_managed (names[i]))
+        {
+          scan_player (ctx, names[i]);
+        }
+    }
+
+  g_free (names);
+  g_variant_unref (names_reply_value);
+  g_variant_unref (names_reply);
+  return TRUE;
+}
+
+/**
+ * Follow the bus, own the playerctld name and run the main loop; returns the
+ * exit code
+ */
+static int
+run_daemon (struct PlayerctldContext *ctx)
+{
+  g_dbus_connection_signal_subscribe (
+      ctx->connection, DBUS_NAME, DBUS_INTERFACE, "NameOwnerChanged",
+      DBUS_PATH, NULL, G_DBUS_SIGNAL_FLAGS_NONE,
+      name_owner_changed_signal_callback, ctx, NULL);
+
+  g_dbus_connection_signal_subscribe (
+      ctx->connection, NULL, NULL, NULL, MPRIS_PATH, NULL,
+      G_DBUS_SIGNAL_FLAGS_NONE, player_signal_proxy_callback, ctx, NULL);
+
+  ctx->bus_id = g_bus_own_name_on_connection (
+      ctx->connection, "org.mpris.MediaPlayer2.playerctld",
+      G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE, on_bus_acquired, on_name_lost, ctx,
+      NULL);
+
+  g_main_loop_run (ctx->loop);
+  return ctx->return_code;
+}
+
+/**
+ * Release what main() acquired; every part may be
+ * unset
+ */
+static void
+release_resources (struct PlayerctldContext *ctx,
+                   GDBusNodeInfo *mpris_introspection_data,
+                   GDBusNodeInfo *playerctld_introspection_data)
+{
+  if (ctx->bus_id != 0)
+    {
+      g_bus_unown_name (ctx->bus_id);
+    }
+  if (ctx->loop != NULL)
+    {
+      g_main_loop_unref (ctx->loop);
+    }
+  if (mpris_introspection_data != NULL)
+    {
+      g_dbus_node_info_unref (mpris_introspection_data);
+    }
+  if (playerctld_introspection_data != NULL)
+    {
+      g_dbus_node_info_unref (playerctld_introspection_data);
+    }
+  if (ctx->players != NULL)
+    {
+      g_queue_free_full (ctx->players, (GDestroyNotify)player_free);
+    }
+  if (ctx->pending_players != NULL)
+    {
+      g_queue_free_full (ctx->pending_players, (GDestroyNotify)player_free);
+    }
+  g_clear_object (&ctx->connection);
+  g_free (ctx->bus_address);
+}
+
 int
-/* XXX: KISS: main() is about 230 lines (lizard); split into setup,
-   activation, client commands and the start-up scan. */
 main (int argc, char *argv[])
 {
   struct PlayerctldContext ctx = { 0 };
@@ -1576,80 +1841,27 @@ main (int argc, char *argv[])
       exit (1);
     }
 
-  // Setup DBus connection
-  GDBusConnectionFlags connection_flags
-      = G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT
-        | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION;
-
-  ctx.bus_address
-      = g_dbus_address_get_for_bus_sync (G_BUS_TYPE_SESSION, NULL, &error);
-  if (error != NULL)
+  if (!connect_to_bus (&ctx))
     {
-      /* STYLE: the g_printerr messages at L1768, L1777, L1841 and L1848
-         have no trailing newline. */
-      g_printerr ("could not get bus address: %s", error->message);
-      exit_code = 1;
-      goto out;
-    }
-  ctx.connection = g_dbus_connection_new_for_address_sync (
-      ctx.bus_address, connection_flags, NULL, NULL, &error);
-  if (error != NULL)
-    {
-      g_printerr ("could not connect to message bus: %s", error->message);
       exit_code = 1;
       goto out;
     }
 
-  g_debug ("connected to dbus: %s",
-           g_dbus_connection_get_unique_name (ctx.connection));
+  const gchar *command = command_arg != NULL ? command_arg[0] : NULL;
 
-  if (command_arg && g_strcmp0 (command_arg[0], "daemon") == 0)
+  if (g_strcmp0 (command, "daemon") == 0)
     {
-      enum activation_result result
-          = start_playerctld_dbus_activation (ctx.connection, &error);
-      if (error != NULL)
-        {
-          g_printerr ("could not activate playerctld service: %s\n",
-                      error->message);
-          g_clear_error (&error);
-          exit_code = 1;
-          goto out;
-        }
-
-      switch (result)
-        {
-        case ACTIVATION_NOT_SUPPORTED:
-          // TODO: find some other way to daemonize the process
-          g_printerr ("%s\n", "org.freedesktop.DBus.Error.ServiceUnknown: "
-                              "DBus service activation "
-                              "of playerctld is not supported");
-          exit_code = 1;
-          break;
-        case ACTIVATION_SUCCESS:
-          g_printerr (
-              "%s\n",
-              "playerctld successfully started with DBus service activation");
-          break;
-        case ACTIVATION_ALREADY_RUNNING:
-          g_printerr ("%s\n", "playerctld DBus service is already running");
-          break;
-        case ACTIVATION_FAIL:
-          // not reached, already handled in the error condition
-          exit_code = 1;
-          break;
-        }
+      exit_code = run_activation (ctx.connection);
       goto out;
     }
 
-  /* XXX: KISS: "command_arg && g_strcmp0 (command_arg[0], ...)" is repeated
-     four times; read the command once. */
-  if (command_arg && g_strcmp0 (command_arg[0], "shift") == 0)
+  if (g_strcmp0 (command, "shift") == 0)
     {
       exit_code = playercmd_shift (ctx.connection);
       goto out;
     }
 
-  if (command_arg && g_strcmp0 (command_arg[0], "unshift") == 0)
+  if (g_strcmp0 (command, "unshift") == 0)
     {
       exit_code = playercmd_unshift (ctx.connection);
       goto out;
@@ -1659,193 +1871,20 @@ main (int argc, char *argv[])
   ctx.pending_players = g_queue_new ();
   ctx.loop = g_main_loop_new (NULL, FALSE);
 
-  // Load introspection data and split into separate interfaces
-  mpris_introspection_data
-      = g_dbus_node_info_new_for_xml (mpris_introspection_xml, &error);
-  if (error != NULL)
+  if (!load_introspection (&ctx, &mpris_introspection_data,
+                           &playerctld_introspection_data)
+      || !scan_players (&ctx))
     {
-      g_printerr ("%s", error->message);
       exit_code = 1;
       goto out;
     }
-  playerctld_introspection_data
-      = g_dbus_node_info_new_for_xml (playerctld_introspection_xml, &error);
-  if (error != NULL)
-    {
-      g_printerr ("%s", error->message);
-      exit_code = 1;
-      goto out;
-    }
-  /* XXX: DRY: four identical lookup-or-g_error blocks (to L1879), while the
-     two playerctld lookups below have no check at all. g_error() aborts, so
-     a mismatch gives a core dump instead of a message. */
-  ctx.root_interface_info = g_dbus_node_info_lookup_interface (
-      mpris_introspection_data, ROOT_INTERFACE);
-  if (ctx.root_interface_info == NULL)
-    {
-      g_error ("Missing introspection data for MPRIS root interface");
-    }
-  /* XXX: stale comment: a question, not a description. */
-  // Is the player interface missing from the introspection data?
-  ctx.player_interface_info = g_dbus_node_info_lookup_interface (
-      mpris_introspection_data, PLAYER_INTERFACE);
-  if (ctx.player_interface_info == NULL)
-    {
-      g_error ("Missing introspection data for MPRIS player interface");
-    }
-  ctx.playlists_interface_info = g_dbus_node_info_lookup_interface (
-      mpris_introspection_data, PLAYLISTS_INTERFACE);
-  if (ctx.playlists_interface_info == NULL)
-    {
-      g_error ("Missing introspection data for MPRIS playlists interface");
-    }
-  ctx.tracklist_interface_info = g_dbus_node_info_lookup_interface (
-      mpris_introspection_data, TRACKLIST_INTERFACE);
-  if (ctx.tracklist_interface_info == NULL)
-    {
-      g_error ("Missing introspection data for MPRIS tracklist interface");
-    }
-  ctx.playerctld_interface_info = g_dbus_node_info_lookup_interface (
-      playerctld_introspection_data, PLAYERCTLD_INTERFACE);
-  if (ctx.playerctld_interface_info == NULL)
-    {
-      g_error ("Missing introspection data for the playerctld interface");
-    }
-  ctx.playerctld_legacy_interface_info = g_dbus_node_info_lookup_interface (
-      playerctld_introspection_data, PLAYERCTLD_INTERFACE_LEGACY);
-  if (ctx.playerctld_legacy_interface_info == NULL)
-    {
-      g_error ("Missing introspection data for the legacy playerctld "
-               "interface");
-    }
 
-  // Get all names of players (names that start with "org.mpris.MediaPlayer2.")
-  // then fetch their properties on all supported interfaces
-  /* FIXME: race: ListNames is read here but the NameOwnerChanged and player
-     signal subscriptions only start at L1966, so a player appearing in
-     between is never seen. Subscribe first, then list. */
-  GVariant *names_reply = g_dbus_connection_call_sync (
-      ctx.connection, DBUS_NAME, DBUS_PATH, DBUS_INTERFACE, "ListNames", NULL,
-      NULL, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-  if (error != NULL)
-    {
-      g_warning ("could not call ListNames: %s", error->message);
-      exit_code = 1;
-      goto out;
-    }
-  GVariant *names_reply_value = g_variant_get_child_value (names_reply, 0);
-  gsize nnames;
-  const gchar **names = g_variant_get_strv (names_reply_value, &nnames);
-  /* STYLE: int index against gsize nnames. */
-  for (int i = 0; i < nnames; ++i)
-    {
-      if (well_known_name_is_managed (names[i]))
-        {
-          // org.mpris.MediaPlayer2.Player properties
-          GVariant *owner_reply = g_dbus_connection_call_sync (
-              ctx.connection, DBUS_NAME, DBUS_PATH, DBUS_INTERFACE,
-              "GetNameOwner", g_variant_new ("(s)", names[i]), NULL,
-              G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, &error);
-          if (error != NULL)
-            {
-              g_warning ("could not get owner for name %s: %s", names[i],
-                         error->message);
-              g_clear_error (&error);
-              continue;
-            }
-
-          GVariant *owner_reply_value
-              = g_variant_get_child_value (owner_reply, 0);
-          struct Player *player = player_new (
-              g_variant_get_string (owner_reply_value, 0), names[i]);
-          g_variant_unref (owner_reply_value);
-          g_variant_unref (owner_reply);
-
-          // org.mpris.MediaPlayer2.Player and org.mpris.MediaPlayer2
-          // properties are mandatory, get rid of "players" who don't support
-          // them
-          if (!player_fetch_properties_sync (player, &ctx, PLAYER_INTERFACE,
-                                             &error)
-              || !player_fetch_properties_sync (player, &ctx, ROOT_INTERFACE,
-                                                &error))
-            {
-              g_warning ("could not get properties for player: %s",
-                         player->well_known);
-              player_free (player);
-              g_clear_error (&error);
-              continue;
-            }
-
-          // the other interfaces are optional, so we can keep the player
-          // around
-          for (int j = 0; j < N_OPTIONAL; j++)
-            {
-              if (!player_fetch_properties_sync (
-                      player, &ctx, optional_interfaces[j].name, &error))
-                {
-                  g_warning ("could not get %s properties for player: %s",
-                             optional_interfaces[j].name, player->well_known);
-                  g_clear_error (&error);
-                }
-            }
-
-          g_debug ("found player: %s", player->well_known);
-          /* XXX: SUSPICIOUS: g_queue_push_head() puts the last listed name
-             in front, so after start-up the active player is whatever
-             ListNames returned last, not the most recently active one. */
-          g_queue_push_head (ctx.players, player);
-        }
-    }
-
-  g_free (names);
-  g_variant_unref (names_reply_value);
-  g_variant_unref (names_reply);
-
-  g_dbus_connection_signal_subscribe (
-      ctx.connection, DBUS_NAME, DBUS_INTERFACE, "NameOwnerChanged", DBUS_PATH,
-      NULL, G_DBUS_SIGNAL_FLAGS_NONE, name_owner_changed_signal_callback, &ctx,
-      NULL);
-
-  g_dbus_connection_signal_subscribe (
-      ctx.connection, NULL, NULL, NULL, MPRIS_PATH, NULL,
-      G_DBUS_SIGNAL_FLAGS_NONE, player_signal_proxy_callback, &ctx, NULL);
-
-  ctx.bus_id = g_bus_own_name_on_connection (
-      ctx.connection, "org.mpris.MediaPlayer2.playerctld",
-      G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE, on_bus_acquired, on_name_lost, &ctx,
-      NULL);
-
-  g_main_loop_run (ctx.loop);
-  exit_code = ctx.return_code;
+  exit_code = run_daemon (&ctx);
 
 out:
-  if (ctx.bus_id != 0)
-    {
-      g_bus_unown_name (ctx.bus_id);
-    }
-  if (ctx.loop != NULL)
-    {
-      g_main_loop_unref (ctx.loop);
-    }
-  if (mpris_introspection_data != NULL)
-    {
-      g_dbus_node_info_unref (mpris_introspection_data);
-    }
-  if (playerctld_introspection_data != NULL)
-    {
-      g_dbus_node_info_unref (playerctld_introspection_data);
-    }
-  if (ctx.players != NULL)
-    {
-      g_queue_free_full (ctx.players, (GDestroyNotify)player_free);
-    }
-  if (ctx.pending_players != NULL)
-    {
-      g_queue_free_full (ctx.pending_players, (GDestroyNotify)player_free);
-    }
   g_clear_error (&error);
-  g_clear_object (&ctx.connection);
-  g_free (ctx.bus_address);
+  release_resources (&ctx, mpris_introspection_data,
+                     playerctld_introspection_data);
 
   return exit_code;
 }

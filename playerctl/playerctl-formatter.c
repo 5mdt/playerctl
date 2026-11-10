@@ -27,9 +27,16 @@
 
 #include "playerctl/playerctl-common.h"
 
-#define LENGTH(array) (sizeof (array) / sizeof ((array)[0]))
-
 #define MAX_ARGS 32
+
+/* The longest format string accepted by tokenize_format (); the parse buffers
+   hold one more character for the terminating NUL. */
+#define MAX_FORMAT_LENGTH 1027
+#define FORMAT_BUF_SIZE (MAX_FORMAT_LENGTH + 1)
+
+/* Volumes below these levels select the low and the medium speaker emoji. */
+#define VOLUME_LOW_THRESHOLD 0.3333
+#define VOLUME_MEDIUM_THRESHOLD 0.6666
 
 #define INFIX_ADD "+"
 #define INFIX_SUB "-"
@@ -79,9 +86,7 @@ struct _PlayerctlFormatterPrivate
 static struct token *
 token_create (enum token_type type)
 {
-  /* XXX: calloc() and free() are mixed with GLib allocators and unchecked
-     (also L101, L1482, L1483, L1498, L1499). */
-  struct token *token = calloc (1, sizeof (struct token));
+  struct token *token = g_new0 (struct token, 1);
   token->type = type;
   return token;
 }
@@ -98,7 +103,7 @@ token_destroy (struct token *token)
 
   token_list_destroy (token->args);
   g_free (token->data);
-  free (token);
+  g_free (token);
 }
 
 static void
@@ -178,32 +183,359 @@ infix_to_identifier (gchar infix)
     case '/':
       return g_strdup (INFIX_DIV);
     default:
-      /* XXX: SUSPICIOUS: assert (false && "not reached") ends a non-void
-         function with no return; with NDEBUG control reaches the end of the
-         function (undefined). A const char * return would also avoid the
-         g_strdup of a one-character string. */
       assert (false && "not reached");
+      return NULL;
     }
 }
 
-/* XXX: KISS: tokenize_expression() is about 290 lines: a state machine with
-   seven goto loop_out jumps and the infix precedence parser appended; far
-   above the lizard limit. Split per state and parse_infix(). */
+/* Creates a function token for the infix operator "infix" applied to
+   "left" and "right"; the new token owns both operands. */
+static struct token *
+create_operation (gchar infix, struct token *left, struct token *right)
+{
+  struct token *operation = token_create (TOKEN_FUNCTION);
+  operation->data = infix_to_identifier (infix);
+  operation->args = g_list_append (operation->args, left);
+  operation->args = g_list_append (operation->args, right);
+  return operation;
+}
+
+static struct token *tokenize_expression (const gchar *format, gint pos,
+                                          gint *end, enum parse_level level,
+                                          GError **error);
+
+/* The state of one tokenize_expression () call. */
+struct expression_parser
+{
+  const gchar *format;
+  int len;
+  gint *end;
+  GError **error;
+  /* XXX: SUSPICIOUS: no bounds check on buf_len++ in the step functions; it
+     is only safe because tokenize_format() rejects formats longer than
+     MAX_FORMAT_LENGTH. Use a GString. */
+  char buf[FORMAT_BUF_SIZE];
+  int buf_len;
+  enum parser_state state;
+  struct token *tok;
+};
+
+enum parser_step
+{
+  STEP_CONTINUE, // go on with the next character
+  STEP_DONE,     // parser->tok is complete
+  STEP_FAIL,     // the error is set
+};
+
+// Sets the end of the expression to the first non-space character from i.
+static void
+parser_set_end (struct expression_parser *parser, int i)
+{
+  while (i < parser->len && parser->format[i] == ' ')
+    {
+      i++;
+    }
+  *parser->end = i;
+}
+
+// ordering parens
+static enum parser_step
+step_parens (struct expression_parser *parser, int i)
+{
+  GError *tmp_error = NULL;
+  parser->tok = tokenize_expression (parser->format, i + 1, parser->end,
+                                     PARSE_FULL, &tmp_error);
+  if (tmp_error != NULL)
+    {
+      g_propagate_error (parser->error, tmp_error);
+      return STEP_FAIL;
+    }
+
+  if (*parser->end > parser->len - 1 || parser->format[*parser->end] != ')')
+    {
+      g_set_error (parser->error, playerctl_formatter_error_quark (), 1,
+                   "expected \")\" (position  %d)", *parser->end);
+      token_destroy (parser->tok);
+      return STEP_FAIL;
+    }
+  *parser->end += 1;
+
+  return STEP_DONE;
+}
+
+// unary + or -
+static enum parser_step
+step_unary (struct expression_parser *parser, int i)
+{
+  GError *tmp_error = NULL;
+  struct token *operand = tokenize_expression (
+      parser->format, i + 1, parser->end, PARSE_NEXT_IDENT, &tmp_error);
+  if (tmp_error != NULL)
+    {
+      g_propagate_error (parser->error, tmp_error);
+      return STEP_FAIL;
+    }
+  parser->tok = token_create (TOKEN_FUNCTION);
+  parser->tok->data = infix_to_identifier (parser->format[i]);
+  parser->tok->args = g_list_append (parser->tok->args, operand);
+  return STEP_DONE;
+}
+
+static enum parser_step
+step_expression (struct expression_parser *parser, int i)
+{
+  gchar c = parser->format[i];
+  if (c == ' ')
+    {
+      return STEP_CONTINUE;
+    }
+  if (c == '(')
+    {
+      return step_parens (parser, i);
+    }
+  if (c == '+' || c == '-')
+    {
+      return step_unary (parser, i);
+    }
+  if (c == '"')
+    {
+      parser->state = STATE_STRING;
+      return STEP_CONTINUE;
+    }
+  if (is_numeric_char (c))
+    {
+      parser->state = STATE_NUMBER;
+      parser->buf[parser->buf_len++] = c;
+      return STEP_CONTINUE;
+    }
+  if (!is_identifier_start_char (c))
+    {
+      g_set_error (parser->error, playerctl_formatter_error_quark (), 1,
+                   "unexpected \"%c\", expected expression (position  %d)", c,
+                   i);
+      return STEP_FAIL;
+    }
+  parser->state = STATE_IDENTIFIER;
+  parser->buf[parser->buf_len++] = c;
+  return STEP_CONTINUE;
+}
+
+static enum parser_step
+step_string (struct expression_parser *parser, int i)
+{
+  if (parser->format[i] != '"')
+    {
+      parser->buf[parser->buf_len++] = parser->format[i];
+      return STEP_CONTINUE;
+    }
+
+  parser->tok = token_create (TOKEN_STRING);
+  parser->buf[parser->buf_len] = '\0';
+  parser->tok->data = g_strdup (parser->buf);
+  parser_set_end (parser, i + 1);
+  return STEP_DONE;
+}
+
+static enum parser_step
+step_number (struct expression_parser *parser, int i)
+{
+  /* XXX: SUSPICIOUS: "i == len - 2" is an unexplained special case:
+     a numeric character at that position ends the number and is not
+     added to buf. */
+  if (is_numeric_char (parser->format[i]) && i != parser->len - 2)
+    {
+      parser->buf[parser->buf_len++] = parser->format[i];
+      return STEP_CONTINUE;
+    }
+
+  struct token *tok = token_create (TOKEN_NUMBER);
+  parser->tok = tok;
+  parser->buf[parser->buf_len] = '\0';
+  tok->data = g_strdup (parser->buf);
+  char *endptr = NULL;
+  gdouble number = strtod (tok->data, &endptr);
+  if (endptr == NULL || *endptr != '\0')
+    {
+      g_set_error (parser->error, playerctl_formatter_error_quark (), 1,
+                   "invalid number: \"%s\" (position %d)", tok->data, i);
+      token_destroy (tok);
+      return STEP_FAIL;
+    }
+  tok->numeric_data = number;
+  parser_set_end (parser, i);
+  return STEP_DONE;
+}
+
+// Parses the arguments of the function call in parser->tok, from position i
+// (just after the opening paren) to the closing paren.
+static gboolean
+parse_call_args (struct expression_parser *parser, int i)
+{
+  GError *tmp_error = NULL;
+  const gchar *format = parser->format;
+  gint *end = parser->end;
+  int nargs = 0;
+
+  while (TRUE)
+    {
+      struct token *arg
+          = tokenize_expression (format, i, end, PARSE_FULL, &tmp_error);
+      if (arg != NULL)
+        {
+          parser->tok->args = g_list_append (parser->tok->args, arg);
+        }
+
+      nargs++;
+
+      if (nargs > MAX_ARGS)
+        {
+          g_set_error (parser->error, playerctl_formatter_error_quark (), 1,
+                       "maximum args of %d exceeded", MAX_ARGS);
+          token_destroy (parser->tok);
+          return FALSE;
+        }
+
+      if (tmp_error != NULL)
+        {
+          token_destroy (parser->tok);
+          g_propagate_error (parser->error, tmp_error);
+          return FALSE;
+        }
+
+      while (*end < parser->len && format[*end] == ' ')
+        {
+          *end += 1;
+        }
+
+      if (format[*end] == ')')
+        {
+          *end += 1;
+          return TRUE;
+        }
+      if (format[*end] != ',')
+        {
+          g_set_error (parser->error, playerctl_formatter_error_quark (), 1,
+                       "expecting \")\" (position %d)", *end);
+          token_destroy (parser->tok);
+          return FALSE;
+        }
+      i = *end + 1;
+    }
+}
+
+static enum parser_step
+step_identifier (struct expression_parser *parser, int i)
+{
+  gchar c = parser->format[i];
+  if (c == '(')
+    {
+      parser->tok = token_create (TOKEN_FUNCTION);
+      parser->buf[parser->buf_len] = '\0';
+      parser->tok->data = g_strdup (parser->buf);
+      return parse_call_args (parser, i + 1) ? STEP_DONE : STEP_FAIL;
+    }
+  if (!is_identifier_char (c))
+    {
+      parser->tok = token_create (TOKEN_VARIABLE);
+      parser->buf[parser->buf_len] = '\0';
+      parser->tok->data = g_strdup (parser->buf);
+      parser_set_end (parser, i);
+      return STEP_DONE;
+    }
+  parser->buf[parser->buf_len] = c;
+  ++parser->buf_len;
+  return STEP_CONTINUE;
+}
+
+static enum parser_step
+parser_step (struct expression_parser *parser, int i)
+{
+  switch (parser->state)
+    {
+    case STATE_EXPRESSION:
+      return step_expression (parser, i);
+    case STATE_STRING:
+      return step_string (parser, i);
+    case STATE_NUMBER:
+      return step_number (parser, i);
+    case STATE_IDENTIFIER:
+      return step_identifier (parser, i);
+    }
+  return STEP_CONTINUE;
+}
+
+/* Parses the operand of the infix operator infix_id at *end with the parse
+   level "operand_level" and returns the operation of tok and the operand.
+   Takes ownership of tok. */
+static struct token *
+parse_infix_operand (const gchar *format, gchar infix_id,
+                     enum parse_level operand_level, struct token *tok,
+                     gint *end, GError **error)
+{
+  GError *tmp_error = NULL;
+  struct token *operand
+      = tokenize_expression (format, *end + 1, end, operand_level, &tmp_error);
+  if (tmp_error != NULL)
+    {
+      token_destroy (tok);
+      g_propagate_error (error, tmp_error);
+      return NULL;
+    }
+
+  return create_operation (infix_id, tok, operand);
+}
+
+static gboolean
+is_infix_char (gchar c)
+{
+  return c == '*' || c == '/' || c == '+' || c == '-';
+}
+
+// Parses the infix operators after the operand tok, according to the
+// precedence of level. Takes ownership of tok.
+static struct token *
+parse_infix (const gchar *format, struct token *tok, gint *end,
+             enum parse_level level, GError **error)
+{
+  gchar infix_id = format[*end];
+  while (is_infix_char (infix_id))
+    {
+      while (infix_id == '*' || infix_id == '/')
+        {
+          tok = parse_infix_operand (format, infix_id, PARSE_NEXT_IDENT, tok,
+                                     end, error);
+          if (tok == NULL)
+            {
+              return NULL;
+            }
+          infix_id = format[*end];
+        }
+
+      if (level == PARSE_MULT_DIV)
+        {
+          return tok;
+        }
+
+      if (infix_id == '+' || infix_id == '-')
+        {
+          tok = parse_infix_operand (format, infix_id, PARSE_MULT_DIV, tok,
+                                     end, error);
+          if (tok == NULL)
+            {
+              return NULL;
+            }
+          infix_id = format[*end];
+        }
+    }
+
+  return tok;
+}
+
 static struct token *
 tokenize_expression (const gchar *format, gint pos, gint *end,
                      enum parse_level level, GError **error)
 {
-  GError *tmp_error = NULL;
   int len = strlen (format);
-  /* XXX: SUSPICIOUS: buf[1028] here and in tokenize_format() (L505,
-     L508-L486) with no bounds check on buf_len++ (L269, L283, L305, L338,
-     L414); it is only safe because tokenize_format() rejects formats of
-     1028 characters or more. Use a named constant, or a GString. */
-  char buf[1028];
-  int buf_len = 0;
-  struct token *tok = NULL;
-
-  enum parser_state state = STATE_EXPRESSION;
 
   if (pos > len - 1)
     {
@@ -212,214 +544,28 @@ tokenize_expression (const gchar *format, gint pos, gint *end,
       return NULL;
     }
 
+  struct expression_parser parser = {
+    .format = format,
+    .len = len,
+    .end = end,
+    .error = error,
+    .state = STATE_EXPRESSION,
+  };
+
   for (int i = pos; i < len; ++i)
     {
-      switch (state)
+      enum parser_step step = parser_step (&parser, i);
+      if (step == STEP_FAIL)
         {
-        case STATE_EXPRESSION:
-          if (format[i] == ' ')
-            {
-              continue;
-            }
-          else if (format[i] == '(')
-            {
-              // ordering parens
-              tok = tokenize_expression (format, i + 1, end, PARSE_FULL,
-                                         &tmp_error);
-              if (tmp_error != NULL)
-                {
-                  g_propagate_error (error, tmp_error);
-                  return NULL;
-                }
-
-              if (*end > len - 1 || format[*end] != ')')
-                {
-                  g_set_error (error, playerctl_formatter_error_quark (), 1,
-                               "expected \")\" (position  %d)", *end);
-                  token_destroy (tok);
-                  return NULL;
-                }
-              *end += 1;
-
-              goto loop_out;
-            }
-          else if (format[i] == '+' || format[i] == '-')
-            {
-              // unary + or -
-              struct token *operand = tokenize_expression (
-                  format, i + 1, end, PARSE_NEXT_IDENT, &tmp_error);
-              if (tmp_error != NULL)
-                {
-                  g_propagate_error (error, tmp_error);
-                  return NULL;
-                }
-              tok = token_create (TOKEN_FUNCTION);
-              tok->data = infix_to_identifier (format[i]);
-              tok->args = g_list_append (tok->args, operand);
-              goto loop_out;
-            }
-          else if (format[i] == '"')
-            {
-              state = STATE_STRING;
-              continue;
-            }
-          else if (is_numeric_char (format[i]))
-            {
-              state = STATE_NUMBER;
-              buf[buf_len++] = format[i];
-              continue;
-            }
-          else if (!is_identifier_start_char (format[i]))
-            {
-              g_set_error (
-                  error, playerctl_formatter_error_quark (), 1,
-                  "unexpected \"%c\", expected expression (position  %d)",
-                  format[i], i);
-              return NULL;
-            }
-          else
-            {
-              state = STATE_IDENTIFIER;
-              buf[buf_len++] = format[i];
-              continue;
-            }
-          break;
-
-        case STATE_STRING:
-          if (format[i] == '"')
-            {
-              tok = token_create (TOKEN_STRING);
-              buf[buf_len] = '\0';
-              tok->data = g_strdup (buf);
-
-              i++;
-              while (i < len && format[i] == ' ')
-                {
-                  i++;
-                }
-              *end = i;
-              goto loop_out;
-            }
-          else
-            {
-              buf[buf_len++] = format[i];
-            }
-          break;
-
-        case STATE_NUMBER:
-          /* XXX: SUSPICIOUS: "i == len - 2" is an unexplained special case:
-             a numeric character at that position ends the number and is not
-             added to buf. */
-          if (!is_numeric_char (format[i]) || i == len - 2)
-            {
-              tok = token_create (TOKEN_NUMBER);
-              buf[buf_len] = '\0';
-              tok->data = g_strdup (buf);
-              char *endptr = NULL;
-              gdouble number = strtod (tok->data, &endptr);
-              if (endptr == NULL || *endptr != '\0')
-                {
-                  g_set_error (error, playerctl_formatter_error_quark (), 1,
-                               "invalid number: \"%s\" (position %d)",
-                               tok->data, i);
-                  token_destroy (tok);
-                  return NULL;
-                }
-              tok->numeric_data = number;
-              while (i < len && format[i] == ' ')
-                {
-                  i++;
-                }
-              *end = i;
-              goto loop_out;
-            }
-          else
-            {
-              buf[buf_len++] = format[i];
-            }
-          break;
-
-        case STATE_IDENTIFIER:
-          if (format[i] == '(')
-            {
-              tok = token_create (TOKEN_FUNCTION);
-              buf[buf_len] = '\0';
-              tok->data = g_strdup (buf);
-              i += 1;
-
-              int nargs = 0;
-              while (TRUE)
-                {
-                  /* XXX: SUSPICIOUS: NULL is appended to tok->args when the
-                     nested call failed (checked only afterwards, L370);
-                     harmless because token_destroy (NULL) is a no-op. */
-                  tok->args = g_list_append (
-                      tok->args, tokenize_expression (format, i, end,
-                                                      PARSE_FULL, &tmp_error));
-
-                  nargs++;
-
-                  if (nargs > MAX_ARGS)
-                    {
-                      g_set_error (error, playerctl_formatter_error_quark (),
-                                   1, "maximum args of %d exceeded", MAX_ARGS);
-                      token_destroy (tok);
-                      return NULL;
-                    }
-
-                  if (tmp_error != NULL)
-                    {
-                      token_destroy (tok);
-                      g_propagate_error (error, tmp_error);
-                      return NULL;
-                    }
-
-                  while (*end < len && format[*end] == ' ')
-                    {
-                      *end += 1;
-                    }
-
-                  if (format[*end] == ')')
-                    {
-                      *end += 1;
-                      break;
-                    }
-                  if (format[*end] == ',')
-                    {
-                      i = *end + 1;
-                      continue;
-                    }
-
-                  g_set_error (error, playerctl_formatter_error_quark (), 1,
-                               "expecting \")\" (position %d)", *end);
-                  token_destroy (tok);
-                  return NULL;
-                }
-              goto loop_out;
-            }
-          else if (!is_identifier_char (format[i]))
-            {
-              tok = token_create (TOKEN_VARIABLE);
-              buf[buf_len] = '\0';
-              tok->data = g_strdup (buf);
-              while (i < len && format[i] == ' ')
-                {
-                  i++;
-                }
-              *end = i;
-              goto loop_out;
-            }
-          else
-            {
-              buf[buf_len] = format[i];
-              ++buf_len;
-            }
+          return NULL;
+        }
+      if (step == STEP_DONE)
+        {
           break;
         }
     }
 
-loop_out:
-
+  struct token *tok = parser.tok;
   if (tok == NULL)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
@@ -435,59 +581,7 @@ loop_out:
       return tok;
     }
 
-  /* XXX: DRY: the "create an operation token with two arguments" block
-     exists twice (L455-L435, L480-L460). */
-  gchar infix_id = format[*end];
-  while (infix_id == '*' || infix_id == '/' || infix_id == '+'
-         || infix_id == '-')
-    {
-      while (infix_id == '*' || infix_id == '/')
-        {
-          struct token *operand = tokenize_expression (
-              format, *end + 1, end, PARSE_NEXT_IDENT, &tmp_error);
-          if (tmp_error != NULL)
-            {
-              token_destroy (tok);
-              g_propagate_error (error, tmp_error);
-              return NULL;
-            }
-
-          struct token *operation = token_create (TOKEN_FUNCTION);
-          operation->data = infix_to_identifier (infix_id);
-          operation->args = g_list_append (operation->args, tok);
-          operation->args = g_list_append (operation->args, operand);
-
-          tok = operation;
-          infix_id = format[*end];
-        }
-
-      if (level == PARSE_MULT_DIV)
-        {
-          return tok;
-        }
-
-      if (infix_id == '+' || infix_id == '-')
-        {
-          struct token *operand = tokenize_expression (
-              format, *end + 1, end, PARSE_MULT_DIV, &tmp_error);
-          if (tmp_error != NULL)
-            {
-              token_destroy (tok);
-              g_propagate_error (error, tmp_error);
-              return NULL;
-            }
-
-          struct token *operation = token_create (TOKEN_FUNCTION);
-          operation->data = infix_to_identifier (infix_id);
-          operation->args = g_list_append (operation->args, tok);
-          operation->args = g_list_append (operation->args, operand);
-
-          tok = operation;
-          infix_id = format[*end];
-        }
-    }
-
-  return tok;
+  return parse_infix (format, tok, end, level, error);
 }
 
 static GList *
@@ -502,13 +596,14 @@ tokenize_format (const char *format, GError **error)
     }
 
   int len = strlen (format);
-  char buf[1028];
+  char buf[FORMAT_BUF_SIZE];
   int buf_len = 0;
 
-  if (len >= 1028)
+  if (len > MAX_FORMAT_LENGTH)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "the maximum format string length is 1027");
+                   "the maximum format string length is %d",
+                   MAX_FORMAT_LENGTH);
       return NULL;
     }
 
@@ -531,6 +626,7 @@ tokenize_format (const char *format, GError **error)
               = tokenize_expression (format, i, &end, PARSE_FULL, &tmp_error);
           if (tmp_error != NULL)
             {
+              token_destroy (token); // NULL on error; keeps analyzers happy
               token_list_destroy (tokens);
               g_propagate_error (error, tmp_error);
               return NULL;
@@ -569,16 +665,20 @@ tokenize_format (const char *format, GError **error)
   return tokens;
 }
 
-/* XXX: DRY: helperfn_lc, _uc and _markup_escape (L727) differ only in the
-   transform, and the nargs/NULL preamble repeats in all seven helpers;
-   "token" is unused in most. */
+/* XXX: DRY: the nargs/NULL preamble repeats in all seven helpers; "token" is
+   unused in most. */
+
+/* Prints the single argument and returns it transformed by "transform". */
 static GVariant *
-helperfn_lc (struct token *token, GVariant **args, int nargs, GError **error)
+transform_single_argument (const gchar *name,
+                           gchar *(*transform) (const gchar *, gssize),
+                           GVariant **args, int nargs, GError **error)
 {
   if (nargs != 1)
     {
       g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function lc takes exactly one argument (got %d)", nargs);
+                   "function %s takes exactly one argument (got %d)", name,
+                   nargs);
       return NULL;
     }
 
@@ -589,35 +689,62 @@ helperfn_lc (struct token *token, GVariant **args, int nargs, GError **error)
     }
 
   gchar *printed = pctl_print_gvariant (value);
-  gchar *printed_lc = g_utf8_strdown (printed, -1);
-  GVariant *ret = g_variant_new ("s", printed_lc);
+  gchar *transformed = transform (printed, -1);
+  GVariant *ret = g_variant_new ("s", transformed);
   g_free (printed);
-  g_free (printed_lc);
+  g_free (transformed);
   return ret;
+}
+
+static GVariant *
+helperfn_lc (struct token *token, GVariant **args, int nargs, GError **error)
+{
+  return transform_single_argument ("lc", g_utf8_strdown, args, nargs, error);
 }
 
 static GVariant *
 helperfn_uc (struct token *token, GVariant **args, int nargs, GError **error)
 {
-  if (nargs != 1)
+  return transform_single_argument ("uc", g_utf8_strup, args, nargs, error);
+}
+
+// Formats a duration in microseconds as [h:]mm:ss.
+static GVariant *
+format_duration (gint64 duration)
+{
+  /* XXX: SUSPICIOUS: a negative duration prints something like "0:-5",
+     because the modulo of a negative number keeps its sign. */
+  gint64 seconds = (duration / 1000000) % 60;
+  gint64 minutes = (duration / 1000000 / 60) % 60;
+  gint64 hours = (duration / 1000000 / 60 / 60);
+
+  GString *formatted = g_string_new ("");
+
+  if (hours != 0)
     {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "function uc takes exactly one argument (got %d)", nargs);
-      return NULL;
+      g_string_append_printf (formatted,
+                              "%" PRId64 ":%02" PRId64 ":%02" PRId64, hours,
+                              minutes, seconds);
+    }
+  else
+    {
+      g_string_append_printf (formatted, "%" PRId64 ":%02" PRId64, minutes,
+                              seconds);
     }
 
-  GVariant *value = args[0];
-  if (value == NULL)
-    {
-      return g_variant_new ("s", "");
-    }
+  gchar *formatted_inner = g_string_free (formatted, FALSE);
+  GVariant *ret = g_variant_new ("s", formatted_inner);
+  g_free (formatted_inner);
 
-  gchar *printed = pctl_print_gvariant (value);
-  gchar *printed_uc = g_utf8_strup (printed, -1);
-  GVariant *ret = g_variant_new ("s", printed_uc);
-  g_free (printed);
-  g_free (printed_uc);
   return ret;
+}
+
+static void
+set_duration_type_error (GError **error)
+{
+  g_set_error (
+      error, playerctl_formatter_error_quark (), 1,
+      "function duration can only be called on track position values");
 }
 
 static GVariant *
@@ -638,9 +765,6 @@ helperfn_duration (struct token *token, GVariant **args, int nargs,
       return g_variant_new ("s", "");
     }
 
-  /* XXX: KISS: duration is assigned inside the condition of the last else-
-     if (g_ascii_string_to_signed) whose body is an empty block holding only
-     a comment; hard to see. */
   gint64 duration;
 
   if (g_variant_type_equal (g_variant_get_type (value), G_VARIANT_TYPE_INT64))
@@ -678,45 +802,23 @@ helperfn_duration (struct token *token, GVariant **args, int nargs,
       duration = double_duration;
     }
   else if (g_variant_type_equal (g_variant_get_type (value),
-                                 G_VARIANT_TYPE_STRING)
-           && g_ascii_string_to_signed (g_variant_get_string (value, NULL), 10,
-                                        0, G_MAXINT64, &duration, NULL))
+                                 G_VARIANT_TYPE_STRING))
     {
       // XXX: some players send mpris:length as a numeric string
+      if (!g_ascii_string_to_signed (g_variant_get_string (value, NULL), 10, 0,
+                                     G_MAXINT64, &duration, NULL))
+        {
+          set_duration_type_error (error);
+          return NULL;
+        }
     }
   else
     {
-      g_set_error (
-          error, playerctl_formatter_error_quark (), 1,
-          "function duration can only be called on track position values");
+      set_duration_type_error (error);
       return NULL;
     }
 
-  /* XXX: SUSPICIOUS: a negative duration prints something like "0:-5",
-     because the modulo of a negative number keeps its sign. */
-  gint64 seconds = (duration / 1000000) % 60;
-  gint64 minutes = (duration / 1000000 / 60) % 60;
-  gint64 hours = (duration / 1000000 / 60 / 60);
-
-  GString *formatted = g_string_new ("");
-
-  if (hours != 0)
-    {
-      g_string_append_printf (formatted,
-                              "%" PRId64 ":%02" PRId64 ":%02" PRId64, hours,
-                              minutes, seconds);
-    }
-  else
-    {
-      g_string_append_printf (formatted, "%" PRId64 ":%02" PRId64, minutes,
-                              seconds);
-    }
-
-  gchar *formatted_inner = g_string_free (formatted, FALSE);
-  GVariant *ret = g_variant_new ("s", formatted_inner);
-  g_free (formatted_inner);
-
-  return ret;
+  return format_duration (duration);
 }
 
 /* STYLE: the continuation line of this comment is not aligned (GNU style: "
@@ -727,26 +829,8 @@ static GVariant *
 helperfn_markup_escape (struct token *token, GVariant **args, int nargs,
                         GError **error)
 {
-  if (nargs != 1)
-    {
-      g_set_error (
-          error, playerctl_formatter_error_quark (), 1,
-          "function markup_escape takes exactly one argument (got %d)", nargs);
-      return NULL;
-    }
-
-  GVariant *value = args[0];
-  if (value == NULL)
-    {
-      return g_variant_new ("s", "");
-    }
-
-  gchar *printed = pctl_print_gvariant (value);
-  gchar *escaped = g_markup_escape_text (printed, -1);
-  GVariant *ret = g_variant_new ("s", escaped);
-  g_free (escaped);
-  g_free (printed);
-  return ret;
+  return transform_single_argument ("markup_escape", g_markup_escape_text,
+                                    args, nargs, error);
 }
 
 static GVariant *
@@ -840,12 +924,11 @@ helperfn_emoji (struct token *token, GVariant **args, int nargs,
            && g_variant_is_of_type (value, G_VARIANT_TYPE_DOUBLE))
     {
       const gdouble volume = g_variant_get_double (value);
-      /* XXX: SUSPICIOUS: magic volume thresholds 0.3333 and 0.6666. */
-      if (volume < 0.3333)
+      if (volume < VOLUME_LOW_THRESHOLD)
         {
           return g_variant_new ("s", "🔈");
         }
-      if (volume < 0.6666)
+      if (volume < VOLUME_MEDIUM_THRESHOLD)
         {
           return g_variant_new ("s", "🔉");
         }
@@ -933,9 +1016,7 @@ is_valid_numeric_type (GVariant *value)
 static gdouble
 get_double_value (GVariant *value)
 {
-  /* XXX: stale comment: names is_value_numeric_type(), the function is
-     is_valid_numeric_type(). */
-  // Keep this in sync with above is_value_numeric_type()
+  // Keep this in sync with above is_valid_numeric_type()
 
   if (g_variant_is_of_type (value, G_VARIANT_TYPE_INT64))
     {
@@ -962,12 +1043,145 @@ operand_type_name (GVariant *value)
   return value != NULL ? g_variant_get_type_string (value) : "NULL";
 }
 
-/* XXX: DRY: infixfn_add, _sub, _mul and _div (to L1230) repeat one shape:
-   nargs check, type check, int64 fast path with an overflow builtin, double
-   fallback. One helper taking the operation would remove about 150 lines.
-   add and sub also test for NULL separately although
-   is_valid_numeric_type() already rejects it; mul and div do not.
-   __builtin_*_overflow is a GCC/Clang extension. */
+/* Describes an infix operator for infix_binary (). */
+struct infix_operator
+{
+  gchar symbol;
+  const gchar *name;
+  // add and sub report a NULL operand before the operand types are checked
+  gboolean reports_null_operand;
+};
+
+static const struct infix_operator infix_add = { '+', "Addition", TRUE };
+static const struct infix_operator infix_sub = { '-', "Subtraction", TRUE };
+static const struct infix_operator infix_mul
+    = { '*', "Multiplication", FALSE };
+static const struct infix_operator infix_div = { '/', "Division", FALSE };
+
+// Applies the operator to two int64 values; sets the error and returns FALSE
+// on overflow or division by zero.
+static gboolean
+apply_int_operator (gchar symbol, gint64 val0, gint64 val1, gint64 *result,
+                    GError **error)
+{
+  gboolean overflow = FALSE;
+  switch (symbol)
+    {
+    case '+':
+      overflow = __builtin_add_overflow (val0, val1, result);
+      break;
+    case '-':
+      overflow = __builtin_sub_overflow (val0, val1, result);
+      break;
+    case '*':
+      overflow = __builtin_mul_overflow (val0, val1, result);
+      break;
+    default:
+      if (val1 == 0)
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "Divide by zero error");
+          return FALSE;
+        }
+      overflow = val0 == G_MININT64 && val1 == -1;
+      if (!overflow)
+        {
+          *result = val0 / val1;
+        }
+      break;
+    }
+
+  if (overflow)
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "Numeric overflow detected");
+    }
+  return !overflow;
+}
+
+// Applies the operator to two doubles; sets the error and returns FALSE on
+// division by zero.
+static gboolean
+apply_double_operator (gchar symbol, gdouble val0, gdouble val1,
+                       gdouble *result, GError **error)
+{
+  switch (symbol)
+    {
+    case '+':
+      *result = val0 + val1;
+      break;
+    case '-':
+      *result = val0 - val1;
+      break;
+    case '*':
+      *result = val0 * val1;
+      break;
+    default:
+      if (val1 == 0.0)
+        {
+          g_set_error (error, playerctl_formatter_error_quark (), 1,
+                       "Divide by zero error");
+          return FALSE;
+        }
+      *result = val0 / val1;
+      break;
+    }
+  return TRUE;
+}
+
+// The binary form of an infix operator: two numeric operands, an int64 result
+// for two int64 operands and a double result otherwise.
+static GVariant *
+infix_binary (const struct infix_operator *op, GVariant **args, int nargs,
+              GError **error)
+{
+  if (nargs != 2)
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "%s takes two arguments (got %d). This is a bug in "
+                   "Playerctl.",
+                   op->name, nargs);
+      return NULL;
+    }
+
+  if (op->reports_null_operand && (args[0] == NULL || args[1] == NULL))
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "Got unsupported operand type for %c: NULL", op->symbol);
+      return NULL;
+    }
+
+  if (!is_valid_numeric_type (args[0]) || !is_valid_numeric_type (args[1]))
+    {
+      g_set_error (error, playerctl_formatter_error_quark (), 1,
+                   "Got unsupported operand types for %c: '%s' and '%s'",
+                   op->symbol, operand_type_name (args[0]),
+                   operand_type_name (args[1]));
+      return NULL;
+    }
+
+  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64)
+      && g_variant_is_of_type (args[1], G_VARIANT_TYPE_INT64))
+    {
+      gint64 result;
+      if (!apply_int_operator (op->symbol, g_variant_get_int64 (args[0]),
+                               g_variant_get_int64 (args[1]), &result, error))
+        {
+          return NULL;
+        }
+      return g_variant_new ("x", result);
+    }
+
+  gdouble result;
+  if (!apply_double_operator (op->symbol, get_double_value (args[0]),
+                              get_double_value (args[1]), &result, error))
+    {
+      return NULL;
+    }
+  return g_variant_new ("d", result);
+}
+
+/* XXX: SUSPICIOUS: __builtin_*_overflow is a GCC/Clang extension. */
 static GVariant *
 infixfn_add (struct token *token, GVariant **args, int nargs, GError **error)
 {
@@ -985,52 +1199,7 @@ infixfn_add (struct token *token, GVariant **args, int nargs, GError **error)
       return args[0];
     }
 
-  if (nargs != 2)
-    {
-      g_set_error (
-          error, playerctl_formatter_error_quark (), 1,
-          "Addition takes two arguments (got %d). This is a bug in Playerctl.",
-          nargs);
-      return NULL;
-    }
-
-  if (args[0] == NULL || args[1] == NULL)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Got unsupported operand type for +: NULL");
-      return NULL;
-    }
-
-  if (!is_valid_numeric_type (args[0]) || !is_valid_numeric_type (args[1]))
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Got unsupported operand types for +: '%s' and '%s'",
-                   operand_type_name (args[0]), operand_type_name (args[1]));
-      return NULL;
-    }
-
-  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64)
-      && g_variant_is_of_type (args[1], G_VARIANT_TYPE_INT64))
-    {
-      gint64 val0 = g_variant_get_int64 (args[0]);
-      gint64 val1 = g_variant_get_int64 (args[1]);
-      gint64 result;
-
-      if (__builtin_add_overflow (val0, val1, &result))
-        {
-          g_set_error (error, playerctl_formatter_error_quark (), 1,
-                       "Numeric overflow detected");
-          return NULL;
-        }
-
-      return g_variant_new ("x", result);
-    }
-
-  gdouble val0 = get_double_value (args[0]);
-  gdouble val1 = get_double_value (args[1]);
-  gdouble result = val0 + val1;
-
-  return g_variant_new ("d", result);
+  return infix_binary (&infix_add, args, nargs, error);
 }
 
 static GVariant *
@@ -1069,7 +1238,7 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
       if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_DOUBLE))
         {
           gdouble value = g_variant_get_double (args[0]);
-          /* STYLE: "value * -1" here, "-value" at L1065 and L1067; pick
+          /* STYLE: "value * -1" here, "-value" in the other branches; pick
              one. */
           return g_variant_new ("d", value * -1);
         }
@@ -1080,153 +1249,19 @@ infixfn_sub (struct token *token, GVariant **args, int nargs, GError **error)
       return NULL;
     }
 
-  if (nargs != 2)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Subtraction takes two arguments (got %d). This is a bug "
-                   "in Playerctl.",
-                   nargs);
-      return NULL;
-    }
-
-  if (args[0] == NULL || args[1] == NULL)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Got unsupported operand type for -: NULL");
-      return NULL;
-    }
-
-  if (!is_valid_numeric_type (args[0]) || !is_valid_numeric_type (args[1]))
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Got unsupported operand types for -: '%s' and '%s'",
-                   operand_type_name (args[0]), operand_type_name (args[1]));
-      return NULL;
-    }
-
-  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64)
-      && g_variant_is_of_type (args[1], G_VARIANT_TYPE_INT64))
-    {
-      gint64 val0 = g_variant_get_int64 (args[0]);
-      gint64 val1 = g_variant_get_int64 (args[1]);
-      gint64 result;
-
-      if (__builtin_sub_overflow (val0, val1, &result))
-        {
-          g_set_error (error, playerctl_formatter_error_quark (), 1,
-                       "Numeric overflow detected");
-          return NULL;
-        }
-
-      return g_variant_new ("x", result);
-    }
-
-  gdouble val0 = get_double_value (args[0]);
-  gdouble val1 = get_double_value (args[1]);
-  gdouble result = val0 - val1;
-
-  return g_variant_new ("d", result);
+  return infix_binary (&infix_sub, args, nargs, error);
 }
 
 static GVariant *
 infixfn_mul (struct token *token, GVariant **args, int nargs, GError **error)
 {
-  if (nargs != 2)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Multiplication takes two arguments (got %d). This is a "
-                   "bug in Playerctl.",
-                   nargs);
-      return NULL;
-    }
-  if (!is_valid_numeric_type (args[0]) || !is_valid_numeric_type (args[1]))
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Got unsupported operand types for *: '%s' and '%s'",
-                   operand_type_name (args[0]), operand_type_name (args[1]));
-      return NULL;
-    }
-  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64)
-      && g_variant_is_of_type (args[1], G_VARIANT_TYPE_INT64))
-    {
-      gint64 val0 = g_variant_get_int64 (args[0]);
-      gint64 val1 = g_variant_get_int64 (args[1]);
-      gint64 result;
-
-      if (__builtin_mul_overflow (val0, val1, &result))
-        {
-          g_set_error (error, playerctl_formatter_error_quark (), 1,
-                       "Numeric overflow detected");
-          return NULL;
-        }
-
-      return g_variant_new ("x", result);
-    }
-
-  gdouble val0 = get_double_value (args[0]);
-  gdouble val1 = get_double_value (args[1]);
-  gdouble result = val0 * val1;
-
-  return g_variant_new ("d", result);
+  return infix_binary (&infix_mul, args, nargs, error);
 }
 
 static GVariant *
 infixfn_div (struct token *token, GVariant **args, int nargs, GError **error)
 {
-  if (nargs != 2)
-    {
-      g_set_error (
-          error, playerctl_formatter_error_quark (), 1,
-          "Division takes two arguments (got %d). This is a bug in Playerctl.",
-          nargs);
-      return NULL;
-    }
-  if (!is_valid_numeric_type (args[0]) || !is_valid_numeric_type (args[1]))
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Got unsupported operand types for /: '%s' and '%s'",
-                   operand_type_name (args[0]), operand_type_name (args[1]));
-      return NULL;
-    }
-
-  if (g_variant_is_of_type (args[0], G_VARIANT_TYPE_INT64)
-      && g_variant_is_of_type (args[1], G_VARIANT_TYPE_INT64))
-    {
-      gint64 val0 = g_variant_get_int64 (args[0]);
-      gint64 val1 = g_variant_get_int64 (args[1]);
-
-      if (val1 == 0)
-        {
-          g_set_error (error, playerctl_formatter_error_quark (), 1,
-                       "Divide by zero error");
-          return NULL;
-        }
-
-      if (val0 == G_MININT64 && val1 == -1)
-        {
-          g_set_error (error, playerctl_formatter_error_quark (), 1,
-                       "Numeric overflow detected");
-          return NULL;
-        }
-
-      gint64 result = val0 / val1;
-
-      return g_variant_new ("x", result);
-    }
-
-  gdouble val0 = get_double_value (args[0]);
-  gdouble val1 = get_double_value (args[1]);
-
-  if (val1 == 0.0)
-    {
-      g_set_error (error, playerctl_formatter_error_quark (), 1,
-                   "Divide by zero error");
-      return NULL;
-    }
-
-  gdouble result = val0 / val1;
-
-  return g_variant_new ("d", result);
+  return infix_binary (&infix_div, args, nargs, error);
 }
 
 /* STYLE: global table with external linkage, defined together with its
@@ -1264,17 +1299,7 @@ expand_token (struct token *token, GVariantDict *context, GError **error)
       return g_variant_new ("d", token->numeric_data);
 
     case TOKEN_VARIABLE:
-      /* XXX: KISS: contains plus lookup is two lookups;
-         g_variant_dict_lookup_value() alone returns NULL when the key is
-         missing, and the else after return can go. */
-      if (g_variant_dict_contains (context, token->data))
-        {
-          return g_variant_dict_lookup_value (context, token->data, NULL);
-        }
-      else
-        {
-          return NULL;
-        }
+      return g_variant_dict_lookup_value (context, token->data, NULL);
 
     case TOKEN_FUNCTION:
       {
@@ -1286,10 +1311,8 @@ expand_token (struct token *token, GVariantDict *context, GError **error)
 
         GVariant *ret = NULL;
         int nargs = 0;
-        /* XXX: SUSPICIOUS: an array of MAX_ARGS + 1, assert (nargs <
-           MAX_ARGS) and the tokenizer limit "nargs > MAX_ARGS" are three
-           different notions of the limit. */
-        GVariant *args[MAX_ARGS + 1];
+        // the tokenizer rejects more than MAX_ARGS arguments
+        GVariant *args[MAX_ARGS];
 
         GList *t;
         for (t = token->args; t != NULL; t = t->next)
@@ -1310,12 +1333,9 @@ expand_token (struct token *token, GVariantDict *context, GError **error)
               {
                 ret = template_functions[i].func (token, args, nargs,
                                                   &tmp_error);
-                /* XXX: KISS: both paths end in goto func_out; the if only
-                   decides whether to propagate. */
                 if (tmp_error != NULL)
                   {
                     g_propagate_error (error, tmp_error);
-                    goto func_out;
                   }
 
                 goto func_out;
@@ -1372,35 +1392,23 @@ expand_format (GList *tokens, GVariantDict *context, GError **error)
   return g_string_free (expanded, FALSE);
 }
 
-/* XXX: DRY: the artist, album and title blocks (to L1404) are one block
-   three times; loop over the three names. */
 static GVariantDict *
 get_default_template_context (PlayerctlPlayer *player, GVariant *base)
 {
   GVariantDict *context = g_variant_dict_new (base);
-  if (!g_variant_dict_contains (context, "artist")
-      && g_variant_dict_contains (context, "xesam:artist"))
+  static const gchar *const aliased_names[] = { "artist", "album", "title" };
+  for (gsize i = 0; i < LENGTH (aliased_names); ++i)
     {
-      GVariant *artist
-          = g_variant_dict_lookup_value (context, "xesam:artist", NULL);
-      g_variant_dict_insert_value (context, "artist", artist);
-      g_variant_unref (artist);
-    }
-  if (!g_variant_dict_contains (context, "album")
-      && g_variant_dict_contains (context, "xesam:album"))
-    {
-      GVariant *album
-          = g_variant_dict_lookup_value (context, "xesam:album", NULL);
-      g_variant_dict_insert_value (context, "album", album);
-      g_variant_unref (album);
-    }
-  if (!g_variant_dict_contains (context, "title")
-      && g_variant_dict_contains (context, "xesam:title"))
-    {
-      GVariant *title
-          = g_variant_dict_lookup_value (context, "xesam:title", NULL);
-      g_variant_dict_insert_value (context, "title", title);
-      g_variant_unref (title);
+      gchar *xesam_key = g_strconcat ("xesam:", aliased_names[i], NULL);
+      if (!g_variant_dict_contains (context, aliased_names[i])
+          && g_variant_dict_contains (context, xesam_key))
+        {
+          GVariant *value
+              = g_variant_dict_lookup_value (context, xesam_key, NULL);
+          g_variant_dict_insert_value (context, aliased_names[i], value);
+          g_variant_unref (value);
+        }
+      g_free (xesam_key);
     }
   if (!g_variant_dict_contains (context, "playerName"))
     {
@@ -1467,7 +1475,8 @@ get_default_template_context (PlayerctlPlayer *player, GVariant *base)
 }
 
 /* XXX: KISS: the formatter keeps one GList in a separately allocated
-   "private" struct (also L74); hold the list in the struct directly. */
+   "private" struct; the priv pointer is declared in the public header, so
+   holding the list in the struct directly needs a header change. */
 PlayerctlFormatter *
 playerctl_formatter_new (const gchar *format, GError **error)
 {
@@ -1479,8 +1488,8 @@ playerctl_formatter_new (const gchar *format, GError **error)
       return NULL;
     }
 
-  PlayerctlFormatter *formatter = calloc (1, sizeof (PlayerctlFormatter));
-  formatter->priv = calloc (1, sizeof (PlayerctlFormatterPrivate));
+  PlayerctlFormatter *formatter = g_new0 (PlayerctlFormatter, 1);
+  formatter->priv = g_new0 (PlayerctlFormatterPrivate, 1);
   formatter->priv->tokens = tokens;
 
   return formatter;
@@ -1495,8 +1504,8 @@ playerctl_formatter_destroy (PlayerctlFormatter *formatter)
     }
 
   token_list_destroy (formatter->priv->tokens);
-  free (formatter->priv);
-  free (formatter);
+  g_free (formatter->priv);
+  g_free (formatter);
 }
 
 gboolean

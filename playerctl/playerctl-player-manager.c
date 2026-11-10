@@ -116,7 +116,7 @@ playerctl_player_manager_dispose (GObject *gobject)
   G_OBJECT_CLASS (playerctl_player_manager_parent_class)->dispose (gobject);
 }
 
-/* FIXME: priv->sort_notify is stored (L520) but never called, neither here
+/* FIXME: priv->sort_notify is stored by set_sort_func() but never called, neither here
    nor when set_sort_func() replaces it, so the destroy notify promised by
    the API docs never runs and sort_data leaks. */
 static void
@@ -141,7 +141,7 @@ playerctl_player_manager_class_init (PlayerctlPlayerManagerClass *klass)
   gobject_class->dispose = playerctl_player_manager_dispose;
   gobject_class->finalize = playerctl_player_manager_finalize;
 
-  /* STYLE: doc comment lines longer than 79 columns (also L154). */
+  /* STYLE: doc comment lines longer than 79 columns (also the next doc comment). */
   /**
    * PlayerctlPlayerManager:players: (transfer none) (type GList(PlayerctlPlayer))
    *
@@ -260,9 +260,9 @@ manager_remove_managed_player_by_name (PlayerctlPlayerManager *manager,
     {
       PlayerctlPlayer *player = PLAYERCTL_PLAYER (l->data);
       /* XXX: SUSPICIOUS: pctl_player_get_instance() is NULL for a player
-         created by playerctl_player_new() or _new_for_source() (see
-         playerctl-player.c:1278), so such a managed player never matches
-         here and is not removed when its name vanishes. */
+         created by playerctl_player_new() or _new_for_source() (see the
+         instance setup in playerctl-player.c), so such a managed player
+         never matches here and is not removed when its name vanishes. */
       gchar *instance = pctl_player_get_instance (player);
       PlayerctlPlayerName managed = { .instance = instance };
       g_object_get (player, "source", &managed.source, NULL);
@@ -335,11 +335,10 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
   const gchar *new_owner = g_variant_get_string (new_owner_variant, NULL);
 
   GList *player_entry = NULL;
-  /* XXX: SUSPICIOUS: strlen (x) == 0 as emptiness test (also L359). A
-     change of owner (old and new both non-empty, a player restarting under
-     the same name) matches neither branch, so no name-vanished and name-
-     appeared pair is emitted. */
-  if (strlen (new_owner) == 0 && strlen (previous_owner) != 0)
+  /* XXX: SUSPICIOUS: A change of owner (old and new both non-empty, a
+     player restarting under the same name) matches neither branch, so no
+     name-vanished and name-appeared pair is emitted. */
+  if (new_owner[0] == '\0' && previous_owner[0] != '\0')
     {
       // the name has vanished
       player_entry
@@ -357,7 +356,7 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
           pctl_player_name_list_destroy (player_entry);
         }
     }
-  else if (strlen (previous_owner) == 0 && strlen (new_owner) != 0)
+  else if (previous_owner[0] == '\0' && new_owner[0] != '\0')
     {
       // the name has appeared
       player_entry
@@ -382,6 +381,31 @@ dbus_name_owner_changed_callback (GDBusProxy *proxy, gchar *sender_name,
   g_variant_unref (new_owner_variant);
 }
 
+/* Returns the proxy of the bus daemon, or NULL. *error is set only for an
+   error other than a bus address that was not found. */
+static GDBusProxy *
+manager_create_bus_proxy (GBusType bus_type, GError **error)
+{
+  GError *tmp_error = NULL;
+  GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync (
+      bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.freedesktop.DBus",
+      "/org/freedesktop/DBus", "org.freedesktop.DBus", NULL, &tmp_error);
+  if (tmp_error != NULL)
+    {
+      if (tmp_error->domain == G_IO_ERROR
+          && tmp_error->code == G_IO_ERROR_NOT_FOUND)
+        {
+          // TODO the bus address was set incorrectly so log a warning
+          g_clear_error (&tmp_error);
+        }
+      else
+        {
+          g_propagate_error (error, tmp_error);
+        }
+    }
+  return proxy;
+}
+
 static gboolean
 playerctl_player_manager_initable_init (GInitable *initable,
                                         GCancellable *cancellable,
@@ -395,42 +419,19 @@ playerctl_player_manager_initable_init (GInitable *initable,
       return TRUE;
     }
 
-  /* XXX: DRY: the session and the system proxy creation (to L433) are the
-     same block twice, with the same TODO. */
-  manager->priv->session_proxy = g_dbus_proxy_new_for_bus_sync (
-      G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, NULL,
-      "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-      NULL, &tmp_error);
+  manager->priv->session_proxy
+      = manager_create_bus_proxy (G_BUS_TYPE_SESSION, &tmp_error);
   if (tmp_error != NULL)
     {
-      if (tmp_error->domain == G_IO_ERROR
-          && tmp_error->code == G_IO_ERROR_NOT_FOUND)
-        {
-          // TODO the bus address was set incorrectly so log a warning
-          g_clear_error (&tmp_error);
-        }
-      else
-        {
-          g_propagate_error (error, tmp_error);
-          return FALSE;
-        }
+      g_propagate_error (error, tmp_error);
+      return FALSE;
     }
-  manager->priv->system_proxy = g_dbus_proxy_new_for_bus_sync (
-      G_BUS_TYPE_SYSTEM, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.freedesktop.DBus",
-      "/org/freedesktop/DBus", "org.freedesktop.DBus", NULL, &tmp_error);
+  manager->priv->system_proxy
+      = manager_create_bus_proxy (G_BUS_TYPE_SYSTEM, &tmp_error);
   if (tmp_error != NULL)
     {
-      if (tmp_error->domain == G_IO_ERROR
-          && tmp_error->code == G_IO_ERROR_NOT_FOUND)
-        {
-          // TODO the bus address was set incorrectly so log a warning
-          g_clear_error (&tmp_error);
-        }
-      else
-        {
-          g_propagate_error (error, tmp_error);
-          return FALSE;
-        }
+      g_propagate_error (error, tmp_error);
+      return FALSE;
     }
 
   manager->priv->player_names = playerctl_list_players (&tmp_error);
@@ -441,7 +442,7 @@ playerctl_player_manager_initable_init (GInitable *initable,
     }
 
   /* STYLE: G_DBUS_PROXY () casts of values that already have that type
-     (also L447, L453). */
+     (also the two connects below). */
   if (manager->priv->session_proxy)
     {
       g_signal_connect (
@@ -538,28 +539,20 @@ void
 playerctl_player_manager_move_player_to_top (PlayerctlPlayerManager *manager,
                                              PlayerctlPlayer *player)
 {
-  /* XXX: DRY: the three list scans (L258, L544, L586) are g_list_find ()
-     with extra steps; L586 is exactly g_list_find (players, player) !=
-     NULL. */
-  GList *l;
-  for (l = manager->priv->players; l != NULL; l = l->next)
+  GList *l = g_list_find (manager->priv->players, player);
+  if (l == NULL)
     {
-      PlayerctlPlayer *current = PLAYERCTL_PLAYER (l->data);
-      if (current == player)
-        {
-          manager->priv->players
-              = g_list_remove_link (manager->priv->players, l);
-          manager->priv->players = g_list_concat (l, manager->priv->players);
+      return;
+    }
 
-          if (manager->priv->sort_func)
-            {
-              manager->priv->players = g_list_sort_with_data (
-                  manager->priv->players, manager->priv->sort_func,
-                  manager->priv->sort_data);
-            }
+  manager->priv->players = g_list_remove_link (manager->priv->players, l);
+  manager->priv->players = g_list_concat (l, manager->priv->players);
 
-          break;
-        }
+  if (manager->priv->sort_func)
+    {
+      manager->priv->players = g_list_sort_with_data (
+          manager->priv->players, manager->priv->sort_func,
+          manager->priv->sort_data);
     }
 }
 
@@ -584,14 +577,9 @@ playerctl_player_manager_manage_player (PlayerctlPlayerManager *manager,
       return;
     }
 
-  GList *l = NULL;
-  for (l = manager->priv->players; l != NULL; l = l->next)
+  if (g_list_find (manager->priv->players, player) != NULL)
     {
-      PlayerctlPlayer *current = PLAYERCTL_PLAYER (l->data);
-      if (player == current)
-        {
-          return;
-        }
+      return;
     }
 
   if (manager->priv->sort_func)

@@ -18,7 +18,7 @@ static void run_isolated(gconstpointer fn) {
 }
 
 static PlayerctlPlayerName *make_name(void) {
-    PlayerctlPlayerName *n = g_slice_new0(PlayerctlPlayerName);
+    PlayerctlPlayerName *n = g_new0(PlayerctlPlayerName, 1);
     n->name = g_strdup("vlc");
     n->instance = g_strdup("vlc.instance42");
     n->source = PLAYERCTL_SOURCE_DBUS_SYSTEM;

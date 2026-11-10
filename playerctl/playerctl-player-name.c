@@ -35,10 +35,7 @@ playerctl_player_name_copy (PlayerctlPlayerName *name)
 
   g_return_val_if_fail (name != NULL, NULL);
 
-  /* XXX: SUSPICIOUS: g_slice_new0() is deprecated since GLib 2.76, see
-     playerctl-common.c:212. */
-  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new0 macro expansion
-  retval = g_slice_new0 (PlayerctlPlayerName);
+  retval = g_new0 (PlayerctlPlayerName, 1);
   *retval = *name;
 
   retval->instance = g_strdup (name->instance);
@@ -63,7 +60,7 @@ playerctl_player_name_free (PlayerctlPlayerName *name)
 
   g_free (name->instance);
   g_free (name->name);
-  g_slice_free (PlayerctlPlayerName, name);
+  g_free (name);
 }
 
 G_DEFINE_BOXED_TYPE (PlayerctlPlayerName, playerctl_player_name,

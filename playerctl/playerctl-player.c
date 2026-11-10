@@ -25,20 +25,14 @@
 #include <playerctl/playerctl-player-manager.h>
 #include <stdbool.h>
 #include <stdint.h>
-/* XXX: SUSPICIOUS: clock_gettime() and struct timespec need <time.h>, which
-   is not included; this only builds through a transitive include of glib. */
 #include <string.h>
+#include <time.h>
 
 #include "playerctl-common.h"
 #include "playerctl-generated.h"
 
-/* XXX: DRY: LENGTH() is defined again in playerctl-cli.c and playerctl-
-   formatter.c; move it to playerctl-common.h. */
-#define LENGTH(array) (sizeof (array) / sizeof ((array)[0]))
-
-#define MPRIS_PATH "/org/mpris/MediaPlayer2"
 #define PROPERTIES_IFACE "org.freedesktop.DBus.Properties"
-#define PLAYER_IFACE "org.mpris.MediaPlayer2.Player"
+#define PLAYER_IFACE PLAYER_INTERFACE
 #define SET_MEMBER "Set"
 
 enum
@@ -249,11 +243,7 @@ playerctl_player_properties_changed_callback (
     {
       // update the cached track id
       gchar *track_id = metadata_get_track_id (metadata);
-      /* XXX: KISS: the first two terms are implied by the g_strcmp0() test;
-         "g_strcmp0 (track_id, cached_track_id) != 0" alone is equivalent. */
-      if ((track_id == NULL && self->priv->cached_track_id != NULL)
-          || (track_id != NULL && self->priv->cached_track_id == NULL)
-          || (g_strcmp0 (track_id, self->priv->cached_track_id) != 0))
+      if (g_strcmp0 (track_id, self->priv->cached_track_id) != 0)
         {
           g_free (self->priv->cached_track_id);
           g_debug ("%s: track id updated to %s", instance, track_id);
@@ -284,7 +274,7 @@ playerctl_player_properties_changed_callback (
       /* FIXME: blocking g_dbus_proxy_call_sync() with no timeout (-1 means
          the 25 s default) inside a signal handler; a hung player freezes
          the main loop. Also XXX: DRY: this Properties.Get call and its
-         unwrapping is repeated at L437, L487 and L1968, with string
+         unwrapping is repeated in the other property readers, with string
          literals although PROPERTIES_IFACE and PLAYER_IFACE exist; make one
          helper. */
       GVariant *call_reply = g_dbus_proxy_call_sync (
@@ -393,7 +383,7 @@ playerctl_player_properties_changed_callback (
     }
 }
 
-/* STYLE: user_data is declared gpointer *, not gpointer; the same at L1184.
+/* STYLE: user_data is declared gpointer *, not gpointer; the same in the other callbacks.
    It works only because all pointers have the same representation. */
 static void
 playerctl_player_seeked_callback (GDBusProxy *_proxy, gint64 position,
@@ -451,8 +441,8 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
       if (metadata == NULL)
         {
           /* XXX: SUSPICIOUS: error codes are bare literals. 3 means
-             "invalid reply" here and at L1988 but "instance without source"
-             at L1223; 1 is "not found", 2 is "no track id". Define a public
+             "invalid reply" here and in the capability reader but "instance
+             without source" in the constructor; 1 is "not found", 2 is "no track id". Define a public
              error enum so callers can tell them apart. */
           g_set_error (err, playerctl_player_error_quark (), 3,
                        "Player sent an invalid reply for the Metadata "
@@ -462,6 +452,61 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
     }
 
   return metadata;
+}
+
+static const gchar *
+can_property_name (guint property_id)
+{
+  switch (property_id)
+    {
+    case PROP_CAN_CONTROL:
+      return "CanControl";
+    case PROP_CAN_PLAY:
+      return "CanPlay";
+    case PROP_CAN_PAUSE:
+      return "CanPause";
+    case PROP_CAN_SEEK:
+      return "CanSeek";
+    case PROP_CAN_GO_NEXT:
+      return "CanGoNext";
+    case PROP_CAN_GO_PREVIOUS:
+      return "CanGoPrevious";
+    default:
+      g_assert_not_reached ();
+    }
+}
+
+static gboolean
+player_propagate_init_error (PlayerctlPlayer *self, GError **err)
+{
+  if (self->priv->init_error == NULL)
+    {
+      return FALSE;
+    }
+
+  g_propagate_error (err, g_error_copy (self->priv->init_error));
+  return TRUE;
+}
+
+static PlayerctlPlayer *
+player_new_with_properties (GError **err, const gchar *first_property_name,
+                            ...)
+{
+  GError *tmp_error = NULL;
+  va_list args;
+
+  va_start (args, first_property_name);
+  GObject *player = g_initable_new_valist (
+      PLAYERCTL_TYPE_PLAYER, first_property_name, args, NULL, &tmp_error);
+  va_end (args);
+
+  if (tmp_error != NULL)
+    {
+      g_propagate_error (err, tmp_error);
+      return NULL;
+    }
+
+  return PLAYERCTL_PLAYER (player);
 }
 
 // Reads one of the boolean Can* properties of the player interface. The value
@@ -665,62 +710,19 @@ playerctl_player_get_property (GObject *object, guint property_id,
         break;
       }
 
-    /* XXX: DRY: the six PROP_CAN_* cases (to L724) differ only in the
-       property name; a table from property id to "CanPlay" and so on would
-       replace them. */
     case PROP_CAN_CONTROL:
-      if (self->priv->proxy == NULL)
-        {
-          g_value_set_boolean (value, FALSE);
-          break;
-        }
-      g_value_set_boolean (value, player_get_capability (self, "CanControl"));
-      break;
-
     case PROP_CAN_PLAY:
-      if (self->priv->proxy == NULL)
-        {
-          g_value_set_boolean (value, FALSE);
-          break;
-        }
-      g_value_set_boolean (value, player_get_capability (self, "CanPlay"));
-      break;
-
     case PROP_CAN_PAUSE:
-      if (self->priv->proxy == NULL)
-        {
-          g_value_set_boolean (value, FALSE);
-          break;
-        }
-      g_value_set_boolean (value, player_get_capability (self, "CanPause"));
-      break;
-
     case PROP_CAN_SEEK:
-      if (self->priv->proxy == NULL)
-        {
-          g_value_set_boolean (value, FALSE);
-          break;
-        }
-      g_value_set_boolean (value, player_get_capability (self, "CanSeek"));
-      break;
-
     case PROP_CAN_GO_NEXT:
-      if (self->priv->proxy == NULL)
-        {
-          g_value_set_boolean (value, FALSE);
-          break;
-        }
-      g_value_set_boolean (value, player_get_capability (self, "CanGoNext"));
-      break;
-
     case PROP_CAN_GO_PREVIOUS:
       if (self->priv->proxy == NULL)
         {
           g_value_set_boolean (value, FALSE);
           break;
         }
-      g_value_set_boolean (value,
-                           player_get_capability (self, "CanGoPrevious"));
+      g_value_set_boolean (value, player_get_capability (
+                                      self, can_property_name (property_id)));
       break;
 
     default:
@@ -770,17 +772,20 @@ playerctl_player_finalize (GObject *gobject)
   G_OBJECT_CLASS (playerctl_player_parent_class)->finalize (gobject);
 }
 
-static void
-playerctl_player_class_init (PlayerctlPlayerClass *klass)
+// All the signals of the player have no return value and no class handler;
+// only the flags, the marshaller and the (at most one) parameter type differ.
+static guint
+player_signal_new (const gchar *name, GSignalFlags flags,
+                   GSignalCMarshaller marshaller, GType param_type)
 {
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  return g_signal_new (name, PLAYERCTL_TYPE_PLAYER, flags, 0, NULL, NULL,
+                       marshaller, G_TYPE_NONE,
+                       param_type == G_TYPE_NONE ? 0 : 1, param_type);
+}
 
-  gobject_class->set_property = playerctl_player_set_property;
-  gobject_class->get_property = playerctl_player_get_property;
-  gobject_class->constructed = playerctl_player_constructed;
-  gobject_class->dispose = playerctl_player_dispose;
-  gobject_class->finalize = playerctl_player_finalize;
-
+static void
+player_define_properties (void)
+{
   obj_properties[PROP_PLAYER_NAME] = g_param_spec_string (
       "player-name", "Player name",
       "The name of the type of player this is. "
@@ -800,10 +805,7 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
       "source", "Player source",
       "The source of this player. Currently supported "
       "sources are the DBus session bus and DBus system bus.",
-      /* XXX: SUSPICIOUS: the default of a PlayerctlSource property is given
-         as the GBusType constant G_BUS_TYPE_NONE; use the PlayerctlSource
-         value. */
-      playerctl_source_get_type (), G_BUS_TYPE_NONE,
+      playerctl_source_get_type (), PLAYERCTL_SOURCE_NONE,
       G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   obj_properties[PROP_PLAYBACK_STATUS] = g_param_spec_enum (
@@ -837,7 +839,11 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
       "playback-status)",
       NULL, /* default */
       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | G_PARAM_DEPRECATED);
+}
 
+static void
+player_define_state_properties (void)
+{
   obj_properties[PROP_VOLUME] = g_param_spec_double (
       "volume", "Player volume",
       "The volume level of the player. Setting "
@@ -846,7 +852,7 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
       "only in a future version. Use playerctl_player_set_volume() to set the "
       "volume.",
       /* XXX: SUSPICIOUS: the volume range is 0..100 here and in the volume
-         signal docs (L1060), but playerctl_player_set_volume() documents
+         signal docs, but playerctl_player_set_volume() documents
          0.0..1.0, which is the MPRIS scale. One of them is wrong. */
       0, 100, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -910,10 +916,11 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
       "can-go-previous", "Can go previous",
       "Whether the player can go to the previous track", FALSE,
       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+}
 
-  g_object_class_install_properties (gobject_class, N_PROPERTIES,
-                                     obj_properties);
-
+static void
+player_install_signals (void)
+{
   /**
    * PlayerctlPlayer::playback-status:
    * @player: the player this event was emitted on
@@ -923,20 +930,9 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    * "paused", or "stopped" which you can listen to by connecting to the
    * "playback-status::[STATUS]" signal.
    */
-  /* XXX: DRY: nine g_signal_new() blocks (to L1116) differ only in name,
-     flags, marshaller and parameter type; a table would shorten class_init
-     a lot (lizard length). */
-  connection_signals[PLAYBACK_STATUS] = g_signal_new (
-      "playback-status",                      /* signal_name */
-      PLAYERCTL_TYPE_PLAYER,                  /* itype */
-      G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED, /* signal_flags */
-      0,                                      /* class_offset */
-      NULL,                                   /* accumulator */
-      NULL,                                   /* accu_data */
-      g_cclosure_marshal_VOID__ENUM,          /* c_marshaller */
-      G_TYPE_NONE,                            /* return_type */
-      1,                                      /* n_params */
-      playerctl_playback_status_get_type ());
+  connection_signals[PLAYBACK_STATUS] = player_signal_new (
+      "playback-status", G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED,
+      g_cclosure_marshal_VOID__ENUM, playerctl_playback_status_get_type ());
 
   /**
    * PlayerctlPlayer::loop-status:
@@ -945,17 +941,9 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    *
    * Emitted when the loop status changes.
    */
-  connection_signals[LOOP_STATUS] = g_signal_new (
-      "loop-status",                          /* signal_name */
-      PLAYERCTL_TYPE_PLAYER,                  /* itype */
-      G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED, /* signal_flags */
-      0,                                      /* class_offset */
-      NULL,                                   /* accumulator */
-      NULL,                                   /* accu_data */
-      g_cclosure_marshal_VOID__ENUM,          /* c_marshaller */
-      G_TYPE_NONE,                            /* return_type */
-      1,                                      /* n_params */
-      playerctl_loop_status_get_type ());
+  connection_signals[LOOP_STATUS] = player_signal_new (
+      "loop-status", G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED,
+      g_cclosure_marshal_VOID__ENUM, playerctl_loop_status_get_type ());
 
   /**
    * PlayerctlPlayer::shuffle:
@@ -965,16 +953,8 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    * Emitted when the shuffle status changes.
    */
   connection_signals[SHUFFLE]
-      = g_signal_new ("shuffle",                        /* signal_name */
-                      PLAYERCTL_TYPE_PLAYER,            /* itype */
-                      G_SIGNAL_RUN_FIRST,               /* signal_flags */
-                      0,                                /* class_offset */
-                      NULL,                             /* accumulator */
-                      NULL,                             /* accu_data */
-                      g_cclosure_marshal_VOID__BOOLEAN, /* c_marshaller */
-                      G_TYPE_NONE,                      /* return_type */
-                      1,                                /* n_params */
-                      G_TYPE_BOOLEAN);
+      = player_signal_new ("shuffle", G_SIGNAL_RUN_FIRST,
+                           g_cclosure_marshal_VOID__BOOLEAN, G_TYPE_BOOLEAN);
 
   /**
    * PlayerctlPlayer::play:
@@ -984,16 +964,9 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    *
    * Deprecated:2.0.0: Use the "playback-status::playing" signal instead.
    */
-  connection_signals[PLAY] = g_signal_new (
-      "play",                                   /* signal_name */
-      PLAYERCTL_TYPE_PLAYER,                    /* itype */
-      G_SIGNAL_RUN_FIRST | G_SIGNAL_DEPRECATED, /* signal_flags */
-      0,                                        /* class_offset */
-      NULL,                                     /* accumulator */
-      NULL,                                     /* accu_data */
-      g_cclosure_marshal_VOID__VOID,            /* c_marshaller */
-      G_TYPE_NONE,                              /* return_type */
-      0);                                       /* n_params */
+  connection_signals[PLAY]
+      = player_signal_new ("play", G_SIGNAL_RUN_FIRST | G_SIGNAL_DEPRECATED,
+                           g_cclosure_marshal_VOID__VOID, G_TYPE_NONE);
 
   /**
    * PlayerctlPlayer::pause:
@@ -1003,16 +976,9 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    *
    * Deprecated:2.0.0: Use the "playback-status::paused" signal instead.
    */
-  connection_signals[PAUSE] = g_signal_new (
-      "pause",                                  /* signal_name */
-      PLAYERCTL_TYPE_PLAYER,                    /* itype */
-      G_SIGNAL_RUN_FIRST | G_SIGNAL_DEPRECATED, /* signal_flags */
-      0,                                        /* class_offset */
-      NULL,                                     /* accumulator */
-      NULL,                                     /* accu_data */
-      g_cclosure_marshal_VOID__VOID,            /* c_marshaller */
-      G_TYPE_NONE,                              /* return_type */
-      0);                                       /* n_params */
+  connection_signals[PAUSE]
+      = player_signal_new ("pause", G_SIGNAL_RUN_FIRST | G_SIGNAL_DEPRECATED,
+                           g_cclosure_marshal_VOID__VOID, G_TYPE_NONE);
 
   /**
    * PlayerctlPlayer::stop:
@@ -1022,17 +988,14 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    *
    * Deprecated:2.0.0: Use the "playback-status::stopped" signal instead.
    */
-  connection_signals[STOP] = g_signal_new (
-      "stop",                                   /* signal_name */
-      PLAYERCTL_TYPE_PLAYER,                    /* itype */
-      G_SIGNAL_RUN_FIRST | G_SIGNAL_DEPRECATED, /* signal_flags */
-      0,                                        /* class_offset */
-      NULL,                                     /* accumulator */
-      NULL,                                     /* accu_data */
-      g_cclosure_marshal_VOID__VOID,            /* c_marshaller */
-      G_TYPE_NONE,                              /* return_type */
-      0);                                       /* n_params */
+  connection_signals[STOP]
+      = player_signal_new ("stop", G_SIGNAL_RUN_FIRST | G_SIGNAL_DEPRECATED,
+                           g_cclosure_marshal_VOID__VOID, G_TYPE_NONE);
+}
 
+static void
+player_install_more_signals (void)
+{
   /**
    * PlayerctlPlayer::metadata:
    * @player: the player this event was emitted on
@@ -1041,16 +1004,8 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    * Emitted when the metadata for the currently playing track changes.
    */
   connection_signals[METADATA]
-      = g_signal_new ("metadata",                       /* signal_name */
-                      PLAYERCTL_TYPE_PLAYER,            /* itype */
-                      G_SIGNAL_RUN_FIRST,               /* signal_flags */
-                      0,                                /* class_offset */
-                      NULL,                             /* accumulator */
-                      NULL,                             /* accu_data */
-                      g_cclosure_marshal_VOID__VARIANT, /* c_marshaller */
-                      G_TYPE_NONE,                      /* return_type */
-                      1,                                /* n_params */
-                      G_TYPE_VARIANT);
+      = player_signal_new ("metadata", G_SIGNAL_RUN_FIRST,
+                           g_cclosure_marshal_VOID__VARIANT, G_TYPE_VARIANT);
 
   /**
    * PlayerctlPlayer::volume:
@@ -1060,16 +1015,8 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    * Emitted when the volume of the player changes.
    */
   connection_signals[VOLUME]
-      = g_signal_new ("volume",                        /* signal_name */
-                      PLAYERCTL_TYPE_PLAYER,           /* itype */
-                      G_SIGNAL_RUN_FIRST,              /* signal_flags */
-                      0,                               /* class_offset */
-                      NULL,                            /* accumulator */
-                      NULL,                            /* accu_data */
-                      g_cclosure_marshal_VOID__DOUBLE, /* c_marshaller */
-                      G_TYPE_NONE,                     /* return_type */
-                      1,                               /* n_params */
-                      G_TYPE_DOUBLE);
+      = player_signal_new ("volume", G_SIGNAL_RUN_FIRST,
+                           g_cclosure_marshal_VOID__DOUBLE, G_TYPE_DOUBLE);
 
   /**
    * PlayerctlPlayer::seeked:
@@ -1084,16 +1031,8 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
      G_TYPE_INT64; on 32-bit targets (long is 32 bits) the position is
      truncated. Use g_cclosure_marshal_generic or a VOID__INT64 marshaller. */
   connection_signals[SEEKED]
-      = g_signal_new ("seeked",                      /* signal_name */
-                      PLAYERCTL_TYPE_PLAYER,         /* itype */
-                      G_SIGNAL_RUN_FIRST,            /* signal_flags */
-                      0,                             /* class_offset */
-                      NULL,                          /* accumulator */
-                      NULL,                          /* accu_data */
-                      g_cclosure_marshal_VOID__LONG, /* c_marshaller */
-                      G_TYPE_NONE,                   /* return_type */
-                      1,                             /* n_params */
-                      G_TYPE_INT64);
+      = player_signal_new ("seeked", G_SIGNAL_RUN_FIRST,
+                           g_cclosure_marshal_VOID__LONG, G_TYPE_INT64);
 
   /**
    * PlayerctlPlayer::exit:
@@ -1102,16 +1041,28 @@ playerctl_player_class_init (PlayerctlPlayerClass *klass)
    * Emitted when the player has disconnected and will no longer respond to
    * queries and commands.
    */
-  connection_signals[EXIT]
-      = g_signal_new ("exit",                        /* signal_name */
-                      PLAYERCTL_TYPE_PLAYER,         /* itype */
-                      G_SIGNAL_RUN_FIRST,            /* signal_flags */
-                      0,                             /* class_offset */
-                      NULL,                          /* accumulator */
-                      NULL,                          /* accu_data */
-                      g_cclosure_marshal_VOID__VOID, /* c_marshaller */
-                      G_TYPE_NONE,                   /* return_type */
-                      0);                            /* n_params */
+  connection_signals[EXIT] = player_signal_new (
+      "exit", G_SIGNAL_RUN_FIRST, g_cclosure_marshal_VOID__VOID, G_TYPE_NONE);
+}
+
+static void
+playerctl_player_class_init (PlayerctlPlayerClass *klass)
+{
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+
+  gobject_class->set_property = playerctl_player_set_property;
+  gobject_class->get_property = playerctl_player_get_property;
+  gobject_class->constructed = playerctl_player_constructed;
+  gobject_class->dispose = playerctl_player_dispose;
+  gobject_class->finalize = playerctl_player_finalize;
+
+  player_define_properties ();
+  player_define_state_properties ();
+  g_object_class_install_properties (gobject_class, N_PROPERTIES,
+                                     obj_properties);
+
+  player_install_signals ();
+  player_install_more_signals ();
 }
 
 static void
@@ -1288,14 +1239,12 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
   g_free (player->priv->player_name);
   player->priv->player_name = pctl_player_base_name (bus_name + offset);
 
-  /* XXX: SUSPICIOUS: the object path is a literal below although MPRIS_PATH
-     is defined for it. */
   player->priv->proxy = org_mpris_media_player2_player_proxy_new_for_bus_sync (
       pctl_source_to_bus_type (player->priv->source),
       player->priv->load_properties
           ? G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES
           : G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
-      bus_name, "/org/mpris/MediaPlayer2", NULL, &tmp_error);
+      bus_name, MPRIS_PATH, NULL, &tmp_error);
   if (tmp_error != NULL)
     {
       g_propagate_error (err, tmp_error);
@@ -1312,15 +1261,10 @@ playerctl_player_initable_init (GInitable *initable, GCancellable *cancellable,
       = org_mpris_media_player2_player_get_playback_status (
           player->priv->proxy);
 
-  /* XXX: KISS: status is already STOPPED, so the failure branch below only
-     repeats it (unless the parser clobbers status on failure, which would
-     deserve its own fix). */
-  // a missing or unknown status is not "playing" (the zero value)
+  // a missing or unknown status is not "playing" (the zero value); the parser
+  // leaves status untouched on failure
   PlayerctlPlaybackStatus status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
-  if (!pctl_parse_playback_status (playback_status_str, &status))
-    {
-      status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
-    }
+  (void)pctl_parse_playback_status (playback_status_str, &status);
   player->priv->cached_status = status;
 
   // the track the client found, so that a change of the same track keeps the
@@ -1404,25 +1348,10 @@ playerctl_list_players (GError **err)
  * Returns:(transfer full): A new #PlayerctlPlayer connected to an instance of
  * the player or NULL if an error occurred
  */
-/* XXX: DRY: playerctl_player_new(), _new_for_source() (L1437) and
-   _new_from_name() (L1469) repeat the same g_initable_new() and error
-   propagation; only the property list differs. */
 PlayerctlPlayer *
 playerctl_player_new (const gchar *player_name, GError **err)
 {
-  GError *tmp_error = NULL;
-  PlayerctlPlayer *player;
-
-  player = g_initable_new (PLAYERCTL_TYPE_PLAYER, NULL, &tmp_error,
-                           "player-name", player_name, NULL);
-
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return NULL;
-    }
-
-  return player;
+  return player_new_with_properties (err, "player-name", player_name, NULL);
 }
 
 /**
@@ -1442,19 +1371,8 @@ PlayerctlPlayer *
 playerctl_player_new_for_source (const gchar *player_name,
                                  PlayerctlSource source, GError **err)
 {
-  GError *tmp_error = NULL;
-  PlayerctlPlayer *player;
-
-  player = g_initable_new (PLAYERCTL_TYPE_PLAYER, NULL, &tmp_error,
-                           "player-name", player_name, "source", source, NULL);
-
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return NULL;
-    }
-
-  return player;
+  return player_new_with_properties (err, "player-name", player_name, "source",
+                                     source, NULL);
 }
 
 /**
@@ -1473,20 +1391,9 @@ playerctl_player_new_for_source (const gchar *player_name,
 PlayerctlPlayer *
 playerctl_player_new_from_name (PlayerctlPlayerName *player_name, GError **err)
 {
-  GError *tmp_error = NULL;
-  PlayerctlPlayer *player;
-
-  player = g_initable_new (PLAYERCTL_TYPE_PLAYER, NULL, &tmp_error,
-                           "player-instance", player_name->instance, "source",
-                           player_name->source, NULL);
-
-  if (tmp_error != NULL)
-    {
-      g_propagate_error (err, tmp_error);
-      return NULL;
-    }
-
-  return player;
+  return player_new_with_properties (err, "player-instance",
+                                     player_name->instance, "source",
+                                     player_name->source, NULL);
 }
 
 /**
@@ -1504,18 +1411,16 @@ void
 playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
                      GClosure *callback, GError **err)
 {
-  /* XXX: DRY: the init_error check is copied into every public function
-     (L1512, L1579, L1648, L1778, L1827 and more). g_return_if_fail (self !=
-     NULL) also accepts a wrong object type; PLAYERCTL_IS_PLAYER (self)
-     would catch it. */
+  /* XXX: SUSPICIOUS: g_return_if_fail (self != NULL) also accepts a wrong
+     object type; PLAYERCTL_IS_PLAYER (self) would catch it (here and in the
+     other public functions). */
   g_return_if_fail (self != NULL);
   g_return_if_fail (event != NULL);
   g_return_if_fail (callback != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
 
@@ -1525,29 +1430,28 @@ playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
   g_signal_connect_closure (self, event, callback, TRUE);
 }
 
-/* XXX: KISS: this macro declares a variable, returns and propagates errors
-   from inside, and is not wrapped in do { } while (0); it is hard to step
-   through and playerctl_player_open() (L1572) and _seek() (L1641) repeat it
-   by hand. A static helper taking the call would do. */
-#define PLAYER_COMMAND_FUNC(COMMAND)                                          \
-  GError *tmp_error = NULL;                                                   \
-                                                                              \
-  g_return_if_fail (self != NULL);                                            \
-  g_return_if_fail (err == NULL || *err == NULL);                             \
-                                                                              \
-  if (self->priv->init_error != NULL)                                         \
-    {                                                                         \
-      g_propagate_error (err, g_error_copy (self->priv->init_error));         \
-      return;                                                                 \
-    }                                                                         \
-                                                                              \
-  org_mpris_media_player2_player_call_##COMMAND##_sync (self->priv->proxy,    \
-                                                        NULL, &tmp_error);    \
-                                                                              \
-  if (tmp_error != NULL)                                                      \
-    {                                                                         \
-      g_propagate_error (err, tmp_error);                                     \
+typedef gboolean (*PlayerCommandCall) (OrgMprisMediaPlayer2Player *proxy,
+                                       GCancellable *cancellable,
+                                       GError **error);
+
+static void
+player_run_command (PlayerctlPlayer *self, PlayerCommandCall call,
+                    GError **err)
+{
+  GError *tmp_error = NULL;
+
+  if (player_propagate_init_error (self, err))
+    {
+      return;
     }
+
+  call (self->priv->proxy, NULL, &tmp_error);
+
+  if (tmp_error != NULL)
+    {
+      g_propagate_error (err, tmp_error);
+    }
+}
 
 /**
  * playerctl_player_play_pause:
@@ -1559,7 +1463,11 @@ playerctl_player_on (PlayerctlPlayer *self, const gchar *event,
 void
 playerctl_player_play_pause (PlayerctlPlayer *self, GError **err)
 {
-  PLAYER_COMMAND_FUNC (play_pause);
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (err == NULL || *err == NULL);
+
+  player_run_command (
+      self, org_mpris_media_player2_player_call_play_pause_sync, err);
 }
 
 /**
@@ -1580,9 +1488,8 @@ playerctl_player_open (PlayerctlPlayer *self, gchar *uri, GError **err)
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
   org_mpris_media_player2_player_call_open_uri_sync (self->priv->proxy, uri,
@@ -1604,7 +1511,11 @@ playerctl_player_open (PlayerctlPlayer *self, gchar *uri, GError **err)
 void
 playerctl_player_play (PlayerctlPlayer *self, GError **err)
 {
-  PLAYER_COMMAND_FUNC (play);
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (err == NULL || *err == NULL);
+
+  player_run_command (self, org_mpris_media_player2_player_call_play_sync,
+                      err);
 }
 
 /**
@@ -1617,7 +1528,11 @@ playerctl_player_play (PlayerctlPlayer *self, GError **err)
 void
 playerctl_player_pause (PlayerctlPlayer *self, GError **err)
 {
-  PLAYER_COMMAND_FUNC (pause);
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (err == NULL || *err == NULL);
+
+  player_run_command (self, org_mpris_media_player2_player_call_pause_sync,
+                      err);
 }
 
 /**
@@ -1630,7 +1545,11 @@ playerctl_player_pause (PlayerctlPlayer *self, GError **err)
 void
 playerctl_player_stop (PlayerctlPlayer *self, GError **err)
 {
-  PLAYER_COMMAND_FUNC (stop);
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (err == NULL || *err == NULL);
+
+  player_run_command (self, org_mpris_media_player2_player_call_stop_sync,
+                      err);
 }
 
 /**
@@ -1649,9 +1568,8 @@ playerctl_player_seek (PlayerctlPlayer *self, gint64 offset, GError **err)
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
 
@@ -1674,7 +1592,11 @@ playerctl_player_seek (PlayerctlPlayer *self, gint64 offset, GError **err)
 void
 playerctl_player_next (PlayerctlPlayer *self, GError **err)
 {
-  PLAYER_COMMAND_FUNC (next);
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (err == NULL || *err == NULL);
+
+  player_run_command (self, org_mpris_media_player2_player_call_next_sync,
+                      err);
 }
 
 /**
@@ -1687,7 +1609,11 @@ playerctl_player_next (PlayerctlPlayer *self, GError **err)
 void
 playerctl_player_previous (PlayerctlPlayer *self, GError **err)
 {
-  PLAYER_COMMAND_FUNC (previous);
+  g_return_if_fail (self != NULL);
+  g_return_if_fail (err == NULL || *err == NULL);
+
+  player_run_command (self, org_mpris_media_player2_player_call_previous_sync,
+                      err);
 }
 
 /* STYLE: player_name is not modified; take const gchar *. */
@@ -1755,8 +1681,6 @@ print_metadata_table (GVariant *metadata, gchar *player_name)
   return g_string_free (table, FALSE);
 }
 
-/* XXX: doc copy and paste: "Returns: The artist from the metadata" is wrong
-   for this function, which returns any property. */
 /**
  * playerctl_player_print_metadata_prop:
  * @self: a #PlayerctlPlayer
@@ -1767,7 +1691,8 @@ print_metadata_table (GVariant *metadata, gchar *player_name)
  * is null, prints all the metadata properties. Returns NULL if no track is
  * playing.
  *
- * Returns:(transfer full): The artist from the metadata of the current track
+ * Returns:(transfer full): The value of the given property from the metadata
+ * of the current track, or all the metadata properties if property is NULL
  */
 gchar *
 playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
@@ -1778,9 +1703,8 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
   g_return_val_if_fail (self != NULL, NULL);
   g_return_val_if_fail (err == NULL || *err == NULL, NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return NULL;
     }
 
@@ -1817,21 +1741,12 @@ playerctl_player_print_metadata_prop (PlayerctlPlayer *self,
   return prop;
 }
 
-/* XXX: DRY: init_error is already checked by
-   playerctl_player_print_metadata_prop() (L1778), so this wrapper repeats
-   the check and adds nothing. */
 static gchar *
 player_get_metadata_string (PlayerctlPlayer *self, const gchar *key,
                             GError **err)
 {
   g_return_val_if_fail (self != NULL, NULL);
   g_return_val_if_fail (err == NULL || *err == NULL, NULL);
-
-  if (self->priv->init_error != NULL)
-    {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
-      return NULL;
-    }
 
   return playerctl_player_print_metadata_prop (self, key, err);
 }
@@ -1915,8 +1830,8 @@ player_set_mpris_property (PlayerctlPlayer *self, const gchar *name,
     }
 }
 
-/* STYLE: the gtk-doc identifier line has no trailing colon (also L1947 and
-   L2000), so gtk-doc ignores these comments. */
+/* STYLE: the gtk-doc identifier line has no trailing colon (also on other
+   functions), so gtk-doc ignores these comments. */
 /**
  * playerctl_player_set_volume
  * @self: a #PlayerctlPlayer
@@ -1935,9 +1850,8 @@ playerctl_player_set_volume (PlayerctlPlayer *self, gdouble volume,
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
 
@@ -2017,9 +1931,8 @@ playerctl_player_set_position (PlayerctlPlayer *self, gint64 position,
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
 
@@ -2067,9 +1980,8 @@ playerctl_player_set_loop_status (PlayerctlPlayer *self,
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
 
@@ -2095,9 +2007,8 @@ playerctl_player_set_shuffle (PlayerctlPlayer *self, gboolean shuffle,
   g_return_if_fail (self != NULL);
   g_return_if_fail (err == NULL || *err == NULL);
 
-  if (self->priv->init_error != NULL)
+  if (player_propagate_init_error (self, err))
     {
-      g_propagate_error (err, g_error_copy (self->priv->init_error));
       return;
     }
 
