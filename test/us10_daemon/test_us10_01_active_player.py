@@ -6,7 +6,13 @@ from asyncio import Queue
 from dbus_next import Message, MessageType, NameFlag, RequestNameReply
 from dbus_next.aio import MessageBus
 
-from ..helpers.daemon import SignalListener, player_names, settle
+from ..helpers.daemon import (
+    SignalListener,
+    player_names,
+    settle,
+    wait_for_player_names,
+    wait_for_players,
+)
 from ..helpers.mpris import PLAYERCTLD_INTERFACE, MprisPlayer, MprisRoot
 
 PREFIX = 'org.mpris.MediaPlayer2.'
@@ -144,9 +150,17 @@ async def test_inactive_player_vanishing_changes_nothing_else(
     [mpris1, mpris2, mpris3] = await mpris_factory(
         'player1', 'player2', 'player3'
     )
+    await wait_for_players(
+        daemon_bus,
+        [PREFIX + 'player1', PREFIX + 'player2', PREFIX + 'player3'],
+    )
     await mpris1.set_artist_title('artist1', 'title1')
     await mpris2.set_artist_title('artist2', 'title2')
     await mpris3.set_artist_title('artist3', 'title3')
+    await wait_for_player_names(
+        daemon_bus,
+        [PREFIX + 'player3', PREFIX + 'player2', PREFIX + 'player1'],
+    )
     listener = await SignalListener.start(bus_address)
 
     await mpris2.disconnect()

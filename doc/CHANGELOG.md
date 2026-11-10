@@ -12,6 +12,7 @@
 - `playerctld` ignores a `Position` of the wrong type instead of aborting on a GLib critical
 - The library ignores `Volume`, `Shuffle`, `LoopStatus`, `PlaybackStatus` and `Metadata` changes of the wrong type instead of emitting garbage or GLib criticals, and no longer leaks a string on every `PropertiesChanged`
 - `playerctld` no longer crashes when a player whose properties could not be read sends a signal after another player appeared
+- `playerctld` frees its bus address, the connection and the players that are still pending on every exit, including `playerctld daemon`, `shift` and `unshift`
 - `position` and `volume` reject empty, non-finite, out-of-range and trailing-garbage arguments, `volume` is clamped to 0.0-1.0, and `volume ''` no longer reads out of bounds
 - `playerctld` no longer crashes on a player error without a body, and forwards the player's error message
 - `play`, `pause`, `play-pause`, `stop`, `next`, `previous` and `open` no longer wait for the player to answer `Properties.GetAll`, so they reach slow players such as spotifyd at once (#10)
@@ -28,6 +29,7 @@
 - Library: listing the players no longer subscribes to D-Bus signals, which used up memory on every call
 - Library: `PlayerctlPlayerManager` removes the player of the bus whose name vanished, not the same name on the other bus (`player-vanished` and `name-vanished` no longer disagree)
 - `--follow` stops with exit code 1 and `Error while executing command` when the format fails to render after a property change (it was only logged), like it already did for a failure on the one-second tick
+- `--follow` with `--all-players` and `-p` starts with the first player of the `-p` list, not the last one that was connected
 - `--follow` without `-p` starts with the player that playerctld lists first, and follows `playerctld shift` and `unshift` by printing the output for the new active player (#18)
 - Library: reading the `metadata` property no longer leaks a reference to the metadata on every read, which kept the whole cover image of the track in memory (#51)
 - Library: listing the players no longer creates a D-Bus proxy on every call, it asks the bus and playerctld directly (#51)

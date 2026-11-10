@@ -75,8 +75,11 @@ static GVariant *call_fn(GVariant *(*fn)(struct token *, GVariant **, int, GErro
     }
     va_end(ap);
     GVariant *ret = fn(tok, args, nargs, err);
+    /* a floating result is sunk; a result that is one of the arguments
+     * (helperfn_default) already carries the reference the caller owns, and
+     * g_variant_ref_sink() would add a second one that nobody releases */
     if (ret != NULL) {
-        g_variant_ref_sink(ret);
+        g_variant_take_ref(ret);
     }
     for (int i = 0; i < nargs; i++) {
         if (args[i] != NULL) {
@@ -826,11 +829,9 @@ static void test_expand_format_directly(void) {
     GVariantDict *ctx = empty_ctx();
     g_variant_dict_insert(ctx, "v", "s", "val");
     GError *err = NULL;
-    g_assert_cmpstr(({
-                        gchar *s = expand_format(NULL, ctx, &err);
-                        s;
-                    }),
-                    ==, "");
+    gchar *empty = expand_format(NULL, ctx, &err);
+    g_assert_cmpstr(empty, ==, "");
+    g_free(empty);
     struct token *a = token_create(TOKEN_STRING);
     a->data = g_strdup("x=");
     struct token *b = token_create(TOKEN_VARIABLE);

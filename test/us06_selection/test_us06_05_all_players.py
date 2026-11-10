@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from ..helpers.follow import follow_cmd
+from ..helpers.follow import expect_no_line, follow_cmd, next_line
 from ..helpers.selection import SELECTIONS
 
 
@@ -36,9 +36,12 @@ async def test_follow_all_players(playerctl, mpris_factory):
         follow_cmd('test3,test2,test1', all_players=True)
     )
 
+    # it starts with the first player of the --player list
+    assert await next_line(proc) == 'test3: artist - title'
+
     # player4 is ignored
     await mpris4.set_artist_title('artist', 'title')
-    assert proc.queue.empty()
+    await expect_no_line(proc)
 
     # no precedence, just whoever changes metadata last
     await mpris1.set_artist_title('artist2', 'title2')

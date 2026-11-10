@@ -1628,8 +1628,6 @@ parse_setup_options (int argc, char **argv, GError **error)
 }
 
 static int
-/* XXX: SUSPICIOUS: playercmd_call() unrefs the connection it was handed;
-   the ownership is surprising. */
 playercmd_call (GDBusConnection *connection, const char *method)
 {
   GError *error = NULL;
@@ -1649,7 +1647,6 @@ playercmd_call (GDBusConnection *connection, const char *method)
           break;
         }
     }
-  g_object_unref (connection);
   if (error != NULL)
     {
       g_autofree gchar *verb = g_ascii_strdown (method, -1);
@@ -1743,6 +1740,9 @@ main (int argc, char *argv[])
 {
   struct PlayerctldContext ctx = { 0 };
   GError *error = NULL;
+  GDBusNodeInfo *mpris_introspection_data = NULL;
+  GDBusNodeInfo *playerctld_introspection_data = NULL;
+  int exit_code = 0;
 
   if (!parse_setup_options (argc, argv, &error))
     {
@@ -1763,14 +1763,16 @@ main (int argc, char *argv[])
       /* STYLE: the g_printerr messages at L1768, L1777, L1841 and L1848
          have no trailing newline. */
       g_printerr ("could not get bus address: %s", error->message);
-      return 1;
+      exit_code = 1;
+      goto out;
     }
   ctx.connection = g_dbus_connection_new_for_address_sync (
       ctx.bus_address, connection_flags, NULL, NULL, &error);
   if (error != NULL)
     {
       g_printerr ("could not connect to message bus: %s", error->message);
-      return 1;
+      exit_code = 1;
+      goto out;
     }
 
   g_debug ("connected to dbus: %s",
@@ -1785,7 +1787,8 @@ main (int argc, char *argv[])
           g_printerr ("could not activate playerctld service: %s\n",
                       error->message);
           g_clear_error (&error);
-          return 1;
+          exit_code = 1;
+          goto out;
         }
 
       switch (result)
@@ -1795,35 +1798,38 @@ main (int argc, char *argv[])
           g_printerr ("%s\n", "org.freedesktop.DBus.Error.ServiceUnknown: "
                               "DBus service activation "
                               "of playerctld is not supported");
-          return 1;
+          exit_code = 1;
+          break;
         case ACTIVATION_SUCCESS:
           g_printerr (
               "%s\n",
               "playerctld successfully started with DBus service activation");
-          return 0;
+          break;
         case ACTIVATION_ALREADY_RUNNING:
           g_printerr ("%s\n", "playerctld DBus service is already running");
-          return 0;
+          break;
         case ACTIVATION_FAIL:
           // not reached, already handled in the error condition
-          return 1;
+          exit_code = 1;
+          break;
         }
+      goto out;
     }
 
   /* XXX: KISS: "command_arg && g_strcmp0 (command_arg[0], ...)" is repeated
      four times; read the command once. */
   if (command_arg && g_strcmp0 (command_arg[0], "shift") == 0)
     {
-      return playercmd_shift (ctx.connection);
+      exit_code = playercmd_shift (ctx.connection);
+      goto out;
     }
 
   if (command_arg && g_strcmp0 (command_arg[0], "unshift") == 0)
     {
-      return playercmd_unshift (ctx.connection);
+      exit_code = playercmd_unshift (ctx.connection);
+      goto out;
     }
 
-  GDBusNodeInfo *mpris_introspection_data = NULL;
-  GDBusNodeInfo *playerctld_introspection_data = NULL;
   ctx.players = g_queue_new ();
   ctx.pending_players = g_queue_new ();
   ctx.loop = g_main_loop_new (NULL, FALSE);
@@ -1834,14 +1840,16 @@ main (int argc, char *argv[])
   if (error != NULL)
     {
       g_printerr ("%s", error->message);
-      return 1;
+      exit_code = 1;
+      goto out;
     }
   playerctld_introspection_data
       = g_dbus_node_info_new_for_xml (playerctld_introspection_xml, &error);
   if (error != NULL)
     {
       g_printerr ("%s", error->message);
-      return 1;
+      exit_code = 1;
+      goto out;
     }
   /* XXX: DRY: four identical lookup-or-g_error blocks (to L1879), while the
      two playerctld lookups below have no check at all. g_error() aborts, so
@@ -1888,7 +1896,8 @@ main (int argc, char *argv[])
   if (error != NULL)
     {
       g_warning ("could not call ListNames: %s", error->message);
-      return 1;
+      exit_code = 1;
+      goto out;
     }
   GVariant *names_reply_value = g_variant_get_child_value (names_reply, 0);
   gsize nnames;
@@ -1973,15 +1982,36 @@ main (int argc, char *argv[])
       NULL);
 
   g_main_loop_run (ctx.loop);
-  g_bus_unown_name (ctx.bus_id);
-  g_main_loop_unref (ctx.loop);
-  g_dbus_node_info_unref (mpris_introspection_data);
-  g_dbus_node_info_unref (playerctld_introspection_data);
-  /* XXX: SUSPICIOUS: pending_players is never freed on exit and the Players
-     in it leak; only ctx.players is freed. */
-  g_queue_free_full (ctx.players, (GDestroyNotify)player_free);
-  g_object_unref (ctx.connection);
+  exit_code = ctx.return_code;
+
+out:
+  if (ctx.bus_id != 0)
+    {
+      g_bus_unown_name (ctx.bus_id);
+    }
+  if (ctx.loop != NULL)
+    {
+      g_main_loop_unref (ctx.loop);
+    }
+  if (mpris_introspection_data != NULL)
+    {
+      g_dbus_node_info_unref (mpris_introspection_data);
+    }
+  if (playerctld_introspection_data != NULL)
+    {
+      g_dbus_node_info_unref (playerctld_introspection_data);
+    }
+  if (ctx.players != NULL)
+    {
+      g_queue_free_full (ctx.players, (GDestroyNotify)player_free);
+    }
+  if (ctx.pending_players != NULL)
+    {
+      g_queue_free_full (ctx.pending_players, (GDestroyNotify)player_free);
+    }
+  g_clear_error (&error);
+  g_clear_object (&ctx.connection);
   g_free (ctx.bus_address);
 
-  return ctx.return_code;
+  return exit_code;
 }
