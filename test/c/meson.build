@@ -27,5 +27,5 @@ foreach name, impl : c_tests
     c_args: c_args,
     install: false,
   )
-  test(name, exe, suite: 'c', timeout: 60)
+  test(name, exe, args: ['--tap'], protocol: 'tap', suite: 'c', timeout: 60)
 endforeach

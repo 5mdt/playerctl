@@ -1,7 +1,12 @@
+/* STYLE: not GNU style either (see test_common.c); about 46 lines exceed 79
+   columns. Also, the glib unit tests cover only common, formatter and
+   player-name; cli, daemon, player and manager are tested through the
+   Python suite only. */
 /* Unit tests for playerctl-formatter.c. The implementation is included so the
  * static tokenizer / template functions can be called directly. */
 
 #include <glib.h>
+#include <math.h>
 #include <stdint.h>
 
 #include "playerctl/playerctl-formatter.c"
@@ -70,8 +75,11 @@ static GVariant *call_fn(GVariant *(*fn)(struct token *, GVariant **, int, GErro
     }
     va_end(ap);
     GVariant *ret = fn(tok, args, nargs, err);
+    /* a floating result is sunk; a result that is one of the arguments
+     * (helperfn_default) already carries the reference the caller owns, and
+     * g_variant_ref_sink() would add a second one that nobody releases */
     if (ret != NULL) {
-        g_variant_ref_sink(ret);
+        g_variant_take_ref(ret);
     }
     for (int i = 0; i < nargs; i++) {
         if (args[i] != NULL) {
@@ -159,6 +167,29 @@ static void test_format_too_long(void) {
     g_assert_nonnull(f);
     playerctl_formatter_destroy(f);
     g_free(ok);
+}
+
+static void test_format_max_length_message(void) {
+    /* Intended: the error names the real limit, 1027 (len >= 1028 is
+     * rejected), not 1028. */
+    gchar *fmt = g_strnfill(1028, 'x');
+    GError *err = NULL;
+    PlayerctlFormatter *f = playerctl_formatter_new(fmt, &err);
+    g_assert_null(f);
+    g_assert_nonnull(err);
+    g_assert_true(g_pattern_match_simple("*1027*", err->message));
+    g_clear_error(&err);
+    g_free(fmt);
+}
+
+static void test_expand_format_error_frees_buffer(void) {
+    /* expand_format leaks its GString when a token fails. Passes on its own;
+     * LSan reports the leak under `make test-asan`. */
+    GVariantDict *ctx = empty_ctx();
+    for (int i = 0; i < 100; i++) {
+        ASSERT_RENDER_FAILS("prefix {{missing_fn(1)}} suffix", ctx, "*");
+    }
+    g_variant_dict_unref(ctx);
 }
 
 static void test_variables_and_whitespace(void) {
@@ -373,6 +404,23 @@ static void test_int64_add_min_min(void) {
     g_variant_dict_unref(ctx);
 }
 
+static void test_int64_min_negation(void) {
+    /* Intended: -INT64_MIN is an overflow error (INT64_MIN * -1 is UB). */
+    GVariantDict *ctx = empty_ctx();
+    g_variant_dict_insert(ctx, "min", "x", (gint64)INT64_MIN);
+    ASSERT_RENDER_FAILS("{{-min}}", ctx, "*overflow*");
+    g_variant_dict_unref(ctx);
+}
+
+static void test_int64_min_div_minus_one(void) {
+    /* Intended: INT64_MIN / -1 is an overflow error (it raises SIGFPE on x86). */
+    GVariantDict *ctx = empty_ctx();
+    g_variant_dict_insert(ctx, "min", "x", (gint64)INT64_MIN);
+    g_variant_dict_insert(ctx, "m1", "x", (gint64)-1);
+    ASSERT_RENDER_FAILS("{{min/m1}}", ctx, "*overflow*");
+    g_variant_dict_unref(ctx);
+}
+
 static void test_divide_by_zero(void) {
     GVariantDict *ctx = empty_ctx();
     g_variant_dict_insert(ctx, "a", "x", (gint64)6);
@@ -566,17 +614,35 @@ static void test_duration(void) {
     assert_string_result(CALL(helperfn_duration, NULL, &err, V_i64(3725000000)), "1:02:05");
     assert_string_result(CALL(helperfn_duration, NULL, &err, V_u64(61000000)), "1:01");
     assert_string_result(CALL(helperfn_duration, NULL, &err, V_d(59000000.0)), "0:59");
+    assert_string_result(CALL(helperfn_duration, NULL, &err, V_s("125000000")), "2:05");
     assert_string_result(CALL(helperfn_duration, NULL, &err, (GVariant *)NULL), "");
     g_assert_no_error(err);
 }
 
 static void test_duration_errors(void) {
     GError *err = NULL;
-    GVariant *r = CALL(helperfn_duration, NULL, &err, V_s("12"));
+    GVariant *r = CALL(helperfn_duration, NULL, &err, V_s("abc"));
     assert_fails(r, err, "function duration can only be called on track position values");
     err = NULL;
     r = CALL(helperfn_duration, NULL, &err, g_variant_new_boolean(TRUE));
     assert_fails(r, err, "*duration can only be called*");
+}
+
+static void test_duration_out_of_range(void) {
+    /* Intended: a double outside the int64 range is an error. The cast is
+     * undefined behaviour (UBSan flags it under `make test-asan`). */
+    GError *err = NULL;
+    GVariant *r = CALL(helperfn_duration, NULL, &err, V_d(1e300));
+    assert_fails(r, err, "*duration*");
+    err = NULL;
+    r = CALL(helperfn_duration, NULL, &err, V_d(-1e300));
+    assert_fails(r, err, "*duration*");
+    err = NULL;
+    r = CALL(helperfn_duration, NULL, &err, V_d(NAN));
+    assert_fails(r, err, "*duration*");
+    err = NULL;
+    r = CALL(helperfn_duration, NULL, &err, V_d(INFINITY));
+    assert_fails(r, err, "*duration*");
 }
 
 static void test_duration_wrong_nargs_message(void) {
@@ -597,6 +663,34 @@ static void test_trunc(void) {
     assert_string_result(CALL(helperfn_trunc, NULL, &err, (GVariant *)NULL, V_d(3)), "");
     assert_string_result(CALL(helperfn_trunc, NULL, &err, V_s("a"), (GVariant *)NULL), "");
     g_assert_no_error(err);
+}
+
+static void test_trunc_long_string(void) {
+    /* Intended: the ellipsis is added whenever text was cut, also for strings
+     * longer than 256 characters (g_utf8_strlen(..., 256) caps the count). */
+    gchar *input = g_strnfill(300, 'a');
+    gchar *head = g_strnfill(280, 'a');
+    gchar *expected = g_strconcat(head, "…", NULL);
+    GError *err = NULL;
+    assert_string_result(CALL(helperfn_trunc, NULL, &err, V_s(input), V_d(280)), expected);
+    g_assert_no_error(err);
+    g_free(input);
+    g_free(head);
+    g_free(expected);
+}
+
+static void test_trunc_negative_length(void) {
+    /* Intended: a negative length is an error or an empty cut, never a
+     * negative end position handed to g_utf8_substring (a g_critical). */
+    GError *err = NULL;
+    GVariant *r = CALL(helperfn_trunc, NULL, &err, V_s("hello"), V_d(-1));
+    if (r != NULL) {
+        g_assert_no_error(err);
+        g_variant_unref(r);
+    } else {
+        g_assert_nonnull(err);
+        g_error_free(err);
+    }
 }
 
 static void test_trunc_errors(void) {
@@ -735,11 +829,9 @@ static void test_expand_format_directly(void) {
     GVariantDict *ctx = empty_ctx();
     g_variant_dict_insert(ctx, "v", "s", "val");
     GError *err = NULL;
-    g_assert_cmpstr(({
-                        gchar *s = expand_format(NULL, ctx, &err);
-                        s;
-                    }),
-                    ==, "");
+    gchar *empty = expand_format(NULL, ctx, &err);
+    g_assert_cmpstr(empty, ==, "");
+    g_free(empty);
     struct token *a = token_create(TOKEN_STRING);
     a->data = g_strdup("x=");
     struct token *b = token_create(TOKEN_VARIABLE);
@@ -771,6 +863,8 @@ int main(int argc, char **argv) {
     T("null-format", test_null_format);
     T("destroy-null", test_destroy_null);
     T("too-long", test_format_too_long);
+    T("max-length-message", test_format_max_length_message);
+    T("error-frees-buffer", test_expand_format_error_frees_buffer);
     T("variables", test_variables_and_whitespace);
     T("string-literals", test_string_literals);
     T("tokenizer-errors", test_tokenizer_errors);
@@ -784,6 +878,8 @@ int main(int argc, char **argv) {
     T("arith/int64-multiplication", test_int64_multiplication);
     T("arith/int64-overflow", test_int64_overflow);
     T("arith/int64-add-min-min", test_int64_add_min_min);
+    T("arith/int64-min-negation", test_int64_min_negation);
+    T("arith/int64-min-div-minus-one", test_int64_min_div_minus_one);
     T("arith/divide-by-zero", test_divide_by_zero);
     T("arith/type-errors", test_arithmetic_type_errors);
     T("arith/null-operand-binary", test_arithmetic_null_operand_binary);
@@ -800,8 +896,11 @@ int main(int argc, char **argv) {
     T("fn/markup-escape", test_markup_escape);
     T("fn/duration", test_duration);
     T("fn/duration-errors", test_duration_errors);
+    T("fn/duration-out-of-range", test_duration_out_of_range);
     T("fn/duration-wrong-nargs-message", test_duration_wrong_nargs_message);
     T("fn/trunc", test_trunc);
+    T("fn/trunc-long-string", test_trunc_long_string);
+    T("fn/trunc-negative-length", test_trunc_negative_length);
     T("fn/trunc-errors", test_trunc_errors);
     T("fn/default", test_default);
     T("fn/emoji", test_emoji_status_and_volume);

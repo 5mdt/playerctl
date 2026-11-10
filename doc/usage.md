@@ -6,21 +6,21 @@ playerctl [--version] [--list-all] [--all-players] [--player=NAME] [--ignore-pla
 
 Here is a list of available commands:
 
-| Command                      | Description                                                                                            |
-|:----------------------------:|--------------------------------------------------------------------------------------------------------|
-|          **`play`**          | Command the player to play.                                                                            |
-|         **`pause`**          | Command the player to pause                                                                            |
-|       **`play-pause`**       | Command the player to toggle between play/pause.                                                       |
-|          **`stop`**          | Command the player to stop.                                                                            |
-|          **`next`**          | Command the player to skip to the next track.                                                          |
-|        **`previous`**        | Command the player to skip to the previous track.                                                      |
-| **`position [OFFSET][+/-]`** | Command the player to go to the position or seek forward or backward OFFSET in seconds.                |
-|  **`volume [LEVEL][+/-]`**   | Print or set the volume to LEVEL from 0.0 to 1.0.                                                      |
-|         **`status`**         | Get the play status of the player. Either "Playing", "Paused", or "Stopped".                           |
-|   **`metadata [KEY...]`**    | Print the metadata for the current track. If KEY is passed, print only those values from the metadata. |
-|       **`open [URI]`**       | Command for the player to open a given URI. Can be either a file path or a remote URL.                 |
-|     **`loop [STATUS]`**      | Print or set the loop status. Either "None", "Track", or "Playlist".                                   |
-|    **`shuffle [STATUS]`**    | Print or set the shuffle status. Either "On", "Off", or "Toggle".                                      |
+| Command                      | Description                                                                                                                             |
+|:----------------------------:|-----------------------------------------------------------------------------------------------------------------------------------------|
+|          **`play`**          | Command the player to play.                                                                                                             |
+|         **`pause`**          | Command the player to pause                                                                                                             |
+|       **`play-pause`**       | Command the player to toggle between play/pause.                                                                                        |
+|          **`stop`**          | Command the player to stop.                                                                                                             |
+|          **`next`**          | Command the player to skip to the next track.                                                                                           |
+|        **`previous`**        | Command the player to skip to the previous track.                                                                                       |
+| **`position [OFFSET][+/-]`** | Command the player to go to the position or seek forward or backward OFFSET in seconds.                                                 |
+|  **`volume [LEVEL][+/-]`**   | Print or set the volume to LEVEL from 0.0 to 1.0, clamped to that range.                                                                |
+|         **`status`**         | Get the play status of the player. Either "Playing", "Paused", or "Stopped".                                                            |
+|   **`metadata [KEY...]`**    | Print the metadata for the current track. If KEY is passed, print only those values from the metadata, one per line in the order given. |
+|       **`open [URI]`**       | Command for the player to open a given URI. Can be either a file path or a remote URL.                                                  |
+|     **`loop [STATUS]`**      | Print or set the loop status. Either "None", "Track", or "Playlist".                                                                    |
+|    **`shuffle [STATUS]`**    | Print or set the shuffle status. Either "On", "Off", or "Toggle".                                                                       |
 
 ## Selecting Players to Control
 
@@ -33,6 +33,12 @@ playerctld daemon
 ```
 
 You can list the names of players that are available to control that are running on the system with `playerctl --list-all`.
+
+An empty list is a valid result, not an error, so `--list-all` exits with 0 even when no player is running (it only prints `No players found` to stderr). The other commands exit with 1 in that case because they could not act on a player. To run a command only when a player exists, test the output of `--list-all`: `-s` silences the message and `grep -q .` exits with 1 on empty input.
+
+```
+playerctl --list-all -s | grep -q . && playerctl metadata title
+```
 
 If you'd only like to control certain players, you can pass the names of those players separated by commas with the `--player` flag. Playerctl will select the first instance of a player in that list that supports the command. To control all players in the list, you can use the `--all-players` flag.
 

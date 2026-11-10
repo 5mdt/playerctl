@@ -137,7 +137,8 @@ player.
 If one or more
 .Ar KEY
 are specified only the values of those keys
-are printed.
+are printed, one per line in the order given; a key the player does not
+have prints nothing.
 .It Cm open Ar URI
 Open
 .Ar URI
@@ -274,6 +275,14 @@ Text not enclosed in braces will be printed verbatim.
 .Sh EXIT STATUS
 .Ex -std
 .Sh EXAMPLES
+Run a command only if a player is running.
+.Fl -list-all
+exits 0 even when the list is empty,
+so test its output:
+.Bd -literal -offset indent
+$ playerctl --list-all -s | grep -q . && playerctl metadata title
+.Ed
+.Pp
 Print the player name,
 playback status in lowercase,
 and position and length in human readable form:

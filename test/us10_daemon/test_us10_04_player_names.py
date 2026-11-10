@@ -26,3 +26,20 @@ async def test_player_names_property(
 
     assert reply.message_type == MessageType.METHOD_RETURN, reply.body
     assert reply.body[0].value == ['org.mpris.MediaPlayer2.player1']
+
+
+async def test_named_player_is_not_replaced_by_its_instance(
+    playerctl, playerctld, mpris_factory
+):
+    # 5mdt/playerctl#63: `-p mpv` selected `mpv.instanceN` when that instance
+    # was the most recently active one
+    [mpv, instance] = await mpris_factory('mpv', 'mpv.instance123')
+    await mpv.set_artist_title('artist', 'one')
+    await instance.set_artist_title('artist', 'two')
+
+    result = await playerctl.run(
+        "-p mpv metadata --format '{{playerInstance}} {{title}}'"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'mpv one'

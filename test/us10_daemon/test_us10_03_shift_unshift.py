@@ -9,9 +9,11 @@ from ..helpers.daemon import (
     playerctld_call,
     playerctld_cli,
     playerctld_shift,
+    wait_for_player_names,
+    wait_for_players,
 )
 from ..helpers.mpris import PLAYERCTLD_INTERFACE
-from ..helpers.follow import follow_cmd
+from ..helpers.follow import follow_cmd, next_line
 
 
 async def test_shift_and_unshift_cycle_players(
@@ -88,7 +90,9 @@ async def test_single_player_stays_active_without_signals(
     member, bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris] = await mpris_factory('player1')
+    await wait_for_players(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     await mpris.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     listener = await SignalListener.start(bus_address)
 
     reply = await playerctld_call(daemon_bus, PLAYERCTLD_INTERFACE, member)
@@ -116,3 +120,44 @@ async def test_failure_message_without_daemon(command, bus_address):
 
     assert code == 1
     assert stderr.startswith(f'Cannot {command}:'), stderr
+
+
+async def test_follow_player_name_updates_on_shift(
+    bus_address, playerctl, playerctld, mpris_factory
+):
+    # 5mdt/playerctl#18: follow without -p printed nothing when the active
+    # player changed with `playerctld shift`
+    [mpris1, mpris2] = await mpris_factory('player1', 'player2')
+    await mpris1.set_artist_title('artist1', 'title1')
+    await mpris2.set_artist_title('artist2', 'title2')
+    proc = await playerctl.start("metadata --format '{{playerName}}' --follow")
+    first = await next_line(proc)
+
+    code = await playerctld_shift(bus_address)
+
+    assert code == 0
+    second = await next_line(proc)
+    assert {first, second} == {'player1', 'player2'}
+
+
+async def test_pause_shift_play_alternates_players(
+    bus_address, playerctl, playerctld, mpris_factory
+):
+    # 5mdt/playerctl#25: `pause -a && playerctld shift && play` sometimes
+    # played the previous player again
+    players = await mpris_factory('player1', 'player2')
+    for mpris in players:
+        await mpris.set_artist_title('artist', 'title')
+
+    played = []
+    for _ in range(6):
+        await playerctl.run('--all-players pause')
+        assert await playerctld_shift(bus_address) == 0
+        result = await playerctl.run('-p playerctld play')
+        assert result.returncode == 0, result.stderr
+        [target] = [m for m in players if m.play_called]
+        played.append(target)
+        for mpris in players:
+            mpris.play_called = False
+
+    assert all(a is not b for a, b in zip(played, played[1:])), played

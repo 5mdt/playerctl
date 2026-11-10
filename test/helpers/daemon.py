@@ -12,14 +12,14 @@ PLAYERCTLD_NAME = 'org.mpris.MediaPlayer2.playerctld'
 MPRIS_PATH = '/org/mpris/MediaPlayer2'
 
 
-async def start_playerctld(bus_address, debug=False):
+async def start_playerctld(bus_address, debug=False, env=None):
     # stop a playerctld that is already on this test bus (e.g. one started by
     # dbus activation), without touching any other playerctld on the system
     pid = await name_owner_pid(bus_address, PLAYERCTLD_NAME)
     if pid is not None:
         os.kill(pid, signal.SIGTERM)
         await wait_for_name(bus_address, PLAYERCTLD_NAME, present=False)
-    env = os.environ.copy()
+    env = {**os.environ, **(env or {})}
     env['DBUS_SESSION_BUS_ADDRESS'] = bus_address
     env['G_MESSAGES_DEBUG'] = 'playerctl'
     proc = await asyncio.create_subprocess_shell(
@@ -189,5 +189,21 @@ async def wait_for_player_names(bus, expected, timeout=2.0):
             return names
         assert asyncio.get_running_loop().time() < deadline, (
             f'PlayerNames is {names}, expected {expected}'
+        )
+        await asyncio.sleep(0.02)
+
+
+async def wait_for_players(bus, expected, timeout=2.0):
+    """Wait until playerctld manages exactly the players `expected`, in any
+    order. A player is only listed once its start-up activation is done, so
+    this tells that the activation signals have been sent; they precede the
+    reply to the PlayerNames request."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        names = await player_names(bus)
+        if sorted(names) == sorted(expected):
+            return names
+        assert asyncio.get_running_loop().time() < deadline, (
+            f'PlayerNames is {names}, expected {expected} in any order'
         )
         await asyncio.sleep(0.02)

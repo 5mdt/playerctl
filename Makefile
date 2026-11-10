@@ -1,8 +1,8 @@
-.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c docker-test coverage all \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all pre-commit \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
-	lint lint-py lint-c lint-sh
+	lint lint-py lint-c lint-sh lint-complexity complexity
 .DEFAULT_GOAL := help
 
 FORMAT_C_SOURCE = $(shell find playerctl | grep \.[ch]$)
@@ -121,7 +121,7 @@ MANIFEST_SOURCES = packaging/package.yaml $(shell find packaging/templates -type
 
 PKG_VERSION = $(shell sed -n "s/^version: *['\"]*\([^'\"]*\)['\"]*$$/\1/p" packaging/package.yaml)
 
-version: ## print the version from packaging/package.yaml
+version: manifests-sync ## copy the version from packaging/package.yaml to meson.build, pyproject.toml, uv.lock and doc/installing.md, fail if doc/CHANGELOG.md has no section for it, and print it
 	@echo $(PKG_VERSION)
 
 tag: ## create the v<version> tag on HEAD from packaging/package.yaml (skips an existing tag; PUSH=1 also pushes it)
@@ -178,7 +178,7 @@ manifests: $(DEV_DEPS) ## render the package manifests from packaging/package.ya
 
 manifests-sync: $(DEV_DEPS) ## copy the version from packaging/package.yaml to meson.build, pyproject.toml and uv.lock, and update the distro table in doc/installing.md
 	$(call require,$(call need,uv))
-	$(RUN) uv run --group packaging scripts/render-packaging.py --sync
+	$(RUN_GIT) uv run --group packaging scripts/render-packaging.py --sync
 
 manifests-check: $(DEV_DEPS) ## fail if the version copies or the distro table in doc/installing.md are out of date
 	$(call require,$(call need,uv))
@@ -230,23 +230,56 @@ test-local: ## build with meson on the host (CONTAINER=0), then run the pytest s
 	$(MAKE) build CONTAINER=0
 	PATH=$(BUILD_BIN):$$PATH GI_TYPELIB_PATH=$(BUILD_BIN) LD_LIBRARY_PATH=$(BUILD_BIN) dbus-run-session uv run --group gi pytest -sq
 
-test-container: ## build the image and run the tests in a container (podman or docker)
+# RECORD_HISTORY=1 appends the run to test/test_history.csv (make test) and also
+# to test/coverage_history.csv (make coverage); make pre-commit does. Each file is
+# restored from HEAD first (or removed if untracked), so a commit holds one run.
+RECORD_HISTORY ?=
+TEST_HISTORY ?= test/test_history.csv
+COVERAGE_HISTORY ?= test/coverage_history.csv
+restore = $(if $(RECORD_HISTORY),$(foreach f,$(1),git checkout HEAD -- $(f) 2>/dev/null || rm -f $(f);))
+# run a script in the test image with test/ and scripts/ mounted and $(1) as /out
+test-run = mkdir -p $(1) && $(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/$(1):/out:Z" -e GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null) -e RECORD_HISTORY=$(RECORD_HISTORY) playerctl-test bash scripts/$(2)
+
+test-container: ## run the C unit tests and the pytest suite in the test image and print a per-category outcome table; reports in build/test-report
 	$(call require,$(CONTAINER_ENGINE))
 	$(CONTAINER_ENGINE) build -t playerctl-test .
-	$(CONTAINER_ENGINE) run --rm $(if $(shell [ -t 0 ] && echo tty),-it) playerctl-test
+	rm -f build/test-report/*.xml build/test-report/summary.*
+	$(call restore,$(TEST_HISTORY))
+	$(call test-run,build/test-report,test-report.sh build)
 
 test-c: ## build and run the C unit tests (test/c) with meson test in the test image
 	$(call require,$(CONTAINER_ENGINE))
 	$(CONTAINER_ENGINE) build -t playerctl-test .
 	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/src:Z" -w /src playerctl-test bash -c "meson setup /tmp/build-c -Dtests=true >/dev/null && ninja -C /tmp/build-c >/dev/null && meson test -C /tmp/build-c --print-errorlogs"
 
-test: test-container ## run the tests in a container (alias for test-container)
-
-coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage
+test-asan: ## run the C unit tests and the CLI/daemon pytest suites against an AddressSanitizer + UBSan build in the test image; reports in build/asan
 	$(call require,$(CONTAINER_ENGINE))
 	$(CONTAINER_ENGINE) build -t playerctl-test .
-	mkdir -p build/coverage
-	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/build/coverage:/out:Z" playerctl-test bash scripts/coverage.sh
+	rm -rf build/asan
+	$(call test-run,build/asan,test-asan.sh)
+
+test: test-container ## run the C and pytest tests in a container with a per-category outcome table (alias for test-container)
+
+coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage; RECORD_HISTORY=1 also appends to the test and coverage history CSVs
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) build -t playerctl-test .
+	$(call restore,$(TEST_HISTORY) $(COVERAGE_HISTORY))
+	$(call test-run,build/coverage,coverage.sh)
+
+CHART ?= build/test-history.png
+test-history-chart: $(DEV_DEPS) ## chart the test and coverage histories (TEST_HISTORY, COVERAGE_HISTORY) to CHART=build/test-history.png (.svg works too)
+	$(call require,$(call need,uv))
+	$(RUN) uv run --no-project --with matplotlib python3 scripts/history-chart.py $(TEST_HISTORY) $(COVERAGE_HISTORY) $(CHART)
+
+BADGE ?= build/test-badge.svg
+test-badge: $(DEV_DEPS) ## write a summary badge (total tests grey, failed and errored red) from the last run in TEST_HISTORY to BADGE=build/test-badge.svg
+	$(RUN) python3 scripts/test-badge.py $(TEST_HISTORY) $(BADGE)
+
+N ?= 8
+test-history-backfill: ## measure the last N=8 first-parent commits one by one in the test image (snapshots in build/backfill) and rewrite the test and coverage history CSVs with those runs
+	$(call require,$(CONTAINER_ENGINE))
+	$(CONTAINER_ENGINE) build -t playerctl-test .
+	CONTAINER_ENGINE=$(CONTAINER_ENGINE) bash scripts/history-backfill.sh $(N)
 
 # docker-test kept as an alias for test-container
 docker-test: test-container ## alias for test-container
@@ -291,7 +324,7 @@ format-check-md: $(DEV_DEPS) ## check Markdown formatting (markdownfmt)
 	test -z "$$out" || { echo "Not formatted:"; echo "$$out"; exit 1; }
 
 # Linting
-lint: lint-py lint-c lint-sh ## lint Python, C and shell sources
+lint: lint-py lint-c lint-complexity lint-sh ## lint Python, C and shell sources
 
 lint-py: $(DEV_DEPS) ## lint Python sources (ruff)
 	$(call require,$(call need,uv))
@@ -312,6 +345,28 @@ lint-c: $(BUILD_DIR)/compile_commands.json ## lint C sources (clang-tidy, needs 
 	$(call require,$(call need,uv))
 	$(RUN) uv run --group lint clang-tidy -p $(BUILD_DIR) --quiet $(CLANG_TIDY_FLAGS) $(filter %.c,${FORMAT_C_SOURCE})
 
+# Function complexity and length (lizard). Locally the findings are only
+# reported; CI passes LIZARD_FLAGS="--ignore_warnings N", where N is the number
+# of known offenders, so no new oversized function gets in. Lower N as they are
+# refactored. The parameter limit leaves room for the fixed GLib callback
+# signatures.
+LIZARD_CCN ?= 15
+LIZARD_LENGTH ?= 80
+LIZARD_ARGS ?= 8
+LIZARD_FLAGS ?= --ignore_warnings -1
+LIZARD = $(RUN) uv run --group lint lizard -l c -C $(LIZARD_CCN) -L $(LIZARD_LENGTH) -a $(LIZARD_ARGS)
+
+lint-complexity: $(DEV_DEPS) ## lint C function complexity and length (lizard)
+	$(call require,$(call need,uv))
+	$(LIZARD) -w $(LIZARD_FLAGS) playerctl
+
+complexity: $(DEV_DEPS) ## write the lizard report and the duplicate code scan to build/lizard
+	$(call require,$(call need,uv))
+	mkdir -p build/lizard
+	$(LIZARD) --ignore_warnings -1 --html playerctl > build/lizard/index.html
+	$(LIZARD) --ignore_warnings -1 -Eduplicate playerctl > build/lizard/duplicates.txt
+	@echo "Reports: build/lizard/index.html, build/lizard/duplicates.txt"
+
 lint-sh: $(DEV_DEPS) ## lint shell scripts (shellcheck)
 	$(call require,$(call need,shellcheck))
 	$(RUN) shellcheck $(SH_SOURCE)
@@ -325,5 +380,24 @@ contributors-check: ## fail if CONTRIBUTORS.md misses an author of C code
 
 contributors-duplicates: ## list contributor identities that look like the same person (fix with .mailmap)
 	python3 scripts/update-contributors.py --duplicates
+
+# Recipe steps, not prerequisites: they must run in this order (formatters and
+# generators change files before the checks look at them), also under make -j.
+pre-commit: ## run everything before a commit: formatters, generators, linters, manifest check, and the tests with coverage, recorded in the test and coverage history CSVs, test-asan, then the history chart and badge in doc/ (not packaging); a failing test run still gets its chart and badge, then fails the target
+	$(MAKE) format
+	$(MAKE) manifests-sync
+	$(MAKE) manifests
+	$(MAKE) docs
+	$(MAKE) format-check
+	$(MAKE) lint
+	$(MAKE) manifests-check
+	$(MAKE) contributors-check
+	@# every test type runs before the chart and badge, which must show failures; the target fails at the end
+	rc=0; \
+	$(MAKE) coverage RECORD_HISTORY=1 || rc=1; \
+	$(MAKE) test-asan || rc=1; \
+	$(MAKE) test-history-chart CHART=doc/test-history.png || rc=1; \
+	$(MAKE) test-badge BADGE=doc/test-badge.svg || rc=1; \
+	exit $$rc
 
 all: format-check lint test ## check formatting, lint, then run the container tests

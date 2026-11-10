@@ -69,6 +69,8 @@ async def wait_for_name(bus_address, name, present=True, timeout=3.0):
         bus.disconnect()
 
 
+# XXX: KISS: eight parameters in one signature (ruff PLR0913); a small
+# dataclass or keyword-only options would read better.
 async def setup_mpris(
     *names,
     bus_address=None,
@@ -371,7 +373,7 @@ class MprisPlaylists(ServiceInterface):
 
     @signal()
     def PlaylistChanged(self) -> '(oss)':
-        return [['/playlist/1', 'one', '']]
+        return ['/playlist/1', 'one', '']
 
 
 class MprisPlayer(ServiceInterface):
@@ -468,7 +470,9 @@ class MprisPlayer(ServiceInterface):
         self.emit_properties_changed(changed)
         await self.ping()
 
-    async def send_properties_changed(self, changed, invalidated=()):
+    async def send_properties_changed(
+        self, changed, invalidated=(), interface=PLAYER_INTERFACE
+    ):
         '''Emit PropertiesChanged with exactly this body: `changed` maps
         property names to `Variant`s of any type (even a wrong one) and
         `invalidated` lists names the client must re-read.'''
@@ -478,7 +482,7 @@ class MprisPlayer(ServiceInterface):
                 PROPERTIES_INTERFACE,
                 'PropertiesChanged',
                 'sa{sv}as',
-                [PLAYER_INTERFACE, dict(changed), list(invalidated)],
+                [interface, dict(changed), list(invalidated)],
             )
         )
         await self.ping()

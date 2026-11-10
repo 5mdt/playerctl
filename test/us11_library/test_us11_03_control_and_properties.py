@@ -2,7 +2,7 @@
 properties."""
 
 import pytest
-from dbus_next import Variant
+from dbus_next import Message, MessageType, Variant
 
 from ..helpers.mpris import was_called
 
@@ -114,6 +114,39 @@ async def test_get_position_reads_the_live_value(gi_run, mpris_factory):
     assert result.stdout.split() == ['1500000']
 
 
+@pytest.mark.parametrize(
+    'signature, body',
+    [('s', ['oops']), ('v', [Variant('s', 'oops')])],
+    ids=['not-a-variant', 'not-an-int64'],
+)
+async def test_get_position_with_invalid_reply_fails_cleanly(
+    signature, body, gi_run, mpris_factory
+):
+    # altdesktop/playerctl#316: a Properties.Get reply that is not a variant
+    # of an int64 used to abort in GLib
+    [mpris] = await mpris_factory('lib')
+
+    def bad_get(msg):
+        if (
+            msg.message_type == MessageType.METHOD_CALL
+            and msg.member == 'Get'
+            and msg.body[1:] == ['Position']
+        ):
+            return Message.new_method_return(msg, signature, body)
+
+    mpris.bus.add_message_handler(bad_get)
+
+    result = await gi_run("""
+        try:
+            Playerctl.Player.new('lib').get_position()
+        except GLib.Error as e:
+            out('error', e.message)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[0] == 'error'
+
+
 async def test_set_position_with_string_track_id(gi_run, mpris_factory):
     [mpris] = await mpris_factory('lib')
     # players that send mpris:trackid as a plain string are tolerated
@@ -125,6 +158,26 @@ async def test_set_position_with_string_track_id(gi_run, mpris_factory):
 
     assert result.returncode == 0, result.stderr
     assert mpris.set_position_called_with == ('/track/str', 3000000)
+
+
+async def test_set_position_with_invalid_object_path_fails(
+    gi_run, mpris_factory
+):
+    # altdesktop/playerctl#264, altdesktop/playerctl#287: used to abort in
+    # g_variant_new_object_path
+    [mpris] = await mpris_factory('lib')
+    mpris.metadata = {'mpris:trackid': Variant('s', 'not a path')}
+
+    result = await gi_run("""
+        try:
+            Playerctl.Player.new('lib').set_position(3000000)
+        except GLib.Error as e:
+            out('error', e.message)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[0] == 'error'
+    assert mpris.set_position_called_with is None
 
 
 async def test_set_position_without_track_id_fails(gi_run, mpris_factory):
@@ -144,7 +197,8 @@ async def test_set_position_without_track_id_fails(gi_run, mpris_factory):
 
 
 async def test_gobject_properties(gi_run, mpris_factory):
-    [mpris] = await mpris_factory('lib.inst')
+    # only a trailing `.instanceN` is an instance suffix, so use a real one
+    [mpris] = await mpris_factory('lib.instance1')
     mpris.can_control = False
     mpris.can_go_next = False
     mpris.can_go_previous = False
@@ -153,7 +207,7 @@ async def test_gobject_properties(gi_run, mpris_factory):
     mpris.metadata = {'xesam:title': Variant('s', 'T')}
 
     result = await gi_run("""
-        player = Playerctl.Player.new('lib.inst')
+        player = Playerctl.Player.new('lib.instance1')
         props = player.props
         out(props.player_name)
         out(props.source.value_nick)
@@ -246,3 +300,23 @@ async def test_getters_are_none_without_metadata(gi_run, mpris_factory):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ['None None None', 'None', 'None']
+
+
+async def test_volume_property_follows_set_volume(gi_run, mpris_factory):
+    # 5mdt/playerctl#42: players such as cmus change the volume without
+    # emitting PropertiesChanged, so the cached property stayed stale
+    [mpris] = await mpris_factory('lib')
+    mpris.volume = 0.5
+    await mpris.ping()
+
+    result = await gi_run("""
+        player = Playerctl.Player.new('lib')
+        player.set_volume(0.8)
+        loop = GLib.MainLoop()
+        GLib.timeout_add(500, loop.quit)
+        loop.run()
+        out(player.props.volume)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert float(result.stdout) == 0.8

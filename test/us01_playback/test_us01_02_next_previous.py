@@ -5,6 +5,9 @@ import pytest
 from ..helpers.mpris import was_called
 
 
+# XXX: DRY: same test body as test_us01_01_play_pause_stop.py
+# (test_command_reaches_player); one parametrize list over all six commands
+# would do.
 @pytest.mark.parametrize('command', ['next', 'previous'])
 async def test_command_reaches_player(command, playerctl, mpris_factory):
     [mpris] = await mpris_factory('commands')

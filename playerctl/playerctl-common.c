@@ -22,10 +22,12 @@
 #include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <strings.h>
 
-#define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
-
+/* XXX: DRY: parse and to_string for the playback status and the loop status
+   (to L119) are four functions over two name tables; one table each would
+   do. */
 gboolean
 pctl_parse_playback_status (const gchar *status_str,
                             PlayerctlPlaybackStatus *status)
@@ -114,6 +116,11 @@ pctl_parse_loop_status (const gchar *status_str, PlayerctlLoopStatus *status)
 gchar *
 pctl_print_gvariant (GVariant *value)
 {
+  if (value == NULL)
+    {
+      return g_strdup ("");
+    }
+
   GString *printed = g_string_new ("");
   if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
     {
@@ -132,7 +139,8 @@ pctl_print_gvariant (GVariant *value)
 
       g_free (prop_strv);
     }
-  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING))
+  else if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING)
+           || g_variant_is_of_type (value, G_VARIANT_TYPE_OBJECT_PATH))
     {
       g_string_append (printed, g_variant_get_string (value, NULL));
     }
@@ -168,24 +176,46 @@ pctl_bus_type_to_source (GBusType bus_type)
     case G_BUS_TYPE_SYSTEM:
       return PLAYERCTL_SOURCE_DBUS_SYSTEM;
     default:
+      /* STYLE: g_warning() message ends with "\n" and an enum is printed
+         with %d. */
       g_warning ("could not convert bus type to source: %d\n", bus_type);
       return PLAYERCTL_SOURCE_NONE;
     }
 }
 
+/* Strips a trailing ".instanceN" (N digits), the only instance suffix. */
+gchar *
+pctl_player_base_name (const gchar *instance)
+{
+  /* XXX: SUSPICIOUS: 9 is strlen (".instance"), written as a bare number
+     three times in this function. */
+  const gchar *suffix = g_strrstr (instance, ".instance");
+  if (suffix != NULL && suffix != instance && suffix[9] != '\0'
+      && suffix[9 + strspn (suffix + 9, "0123456789")] == '\0')
+    {
+      return g_strndup (instance, suffix - instance);
+    }
+  return g_strdup (instance);
+}
+
 PlayerctlPlayerName *
 pctl_player_name_new (const gchar *instance, PlayerctlSource source)
 {
+  /* XXX: SUSPICIOUS: g_slice_new() and g_slice_free() are deprecated since
+     GLib 2.76 (also playerctl-player-name.c); g_new() and g_free() do the
+     same. */
   // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new macro expansion
   PlayerctlPlayerName *player_name = g_slice_new (PlayerctlPlayerName);
-  gchar **split = g_strsplit (instance, ".", 2);
-  player_name->name = g_strdup (split[0]);
-  g_strfreev (split);
+  player_name->name = pctl_player_base_name (instance);
   player_name->instance = g_strdup (instance);
   player_name->source = source;
   return player_name;
 }
 
+/* XXX: SUSPICIOUS: pctl_player_name_compare() is used as a sort comparator
+   (L452) but returns 1 in both directions when the sources differ, so it is
+   not an ordering. It is only correct because all names of one bus share a
+   source. Parameters should be const (also L236, L274, L301). */
 gint
 pctl_player_name_compare (PlayerctlPlayerName *name_a,
                           PlayerctlPlayerName *name_b)
@@ -222,6 +252,8 @@ pctl_player_name_string_instance_compare (const gchar *name,
   gboolean instance_match
       = !exact_match
         && (g_str_has_prefix (instance, name)
+            /* XXX: KISS: strlen (instance) > strlen (name) is implied by
+               the prefix test plus the "." test below it. */
             && strlen (instance) > strlen (name)
             && g_str_has_prefix (instance + strlen (name), "."));
 
@@ -241,8 +273,23 @@ pctl_player_name_find (GList *list, gchar *player_id, PlayerctlSource source)
     .source = source,
   };
 
+  /* STYLE: pctl_player_name_compare and
+     instance_compare_item_key (L310) are cast to
+     GCompareFunc; calling through a different
+     function type is undefined in C. Wrap them with
+     the right signature. */
   return g_list_find_custom (list, &player_name,
                              (GCompareFunc)pctl_player_name_compare);
+}
+
+/* g_list_find_custom passes (list item, search key), the reverse of the
+ * (name, instance) order of pctl_player_name_instance_compare. */
+static gint
+instance_compare_item_key (const PlayerctlPlayerName *item,
+                           const PlayerctlPlayerName *key)
+{
+  return pctl_player_name_instance_compare ((PlayerctlPlayerName *)key,
+                                            (PlayerctlPlayerName *)item);
 }
 
 GList *
@@ -255,7 +302,7 @@ pctl_player_name_find_instance (GList *list, gchar *player_id,
   };
 
   return g_list_find_custom (list, &player_name,
-                             (GCompareFunc)pctl_player_name_instance_compare);
+                             (GCompareFunc)instance_compare_item_key);
 }
 
 void
@@ -268,6 +315,8 @@ pctl_player_name_list_destroy (GList *list)
   g_list_free_full (list, (GDestroyNotify)playerctl_player_name_free);
 }
 
+/* XXX: KISS: pctl_list_player_names_on_bus() is 130 lines with five nesting
+   levels (lizard). */
 GList *
 pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
 {
@@ -275,9 +324,9 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
   GList *players = NULL;
   gboolean has_playerctld = FALSE;
 
-  GDBusProxy *proxy = g_dbus_proxy_new_for_bus_sync (
-      bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.freedesktop.DBus",
-      "/org/freedesktop/DBus", "org.freedesktop.DBus", NULL, &tmp_error);
+  /* Plain calls on the connection: a GDBusProxy would queue a cleanup
+     callback on the main context for every call. */
+  GDBusConnection *connection = g_bus_get_sync (bus_type, NULL, &tmp_error);
 
   if (tmp_error != NULL)
     {
@@ -309,13 +358,15 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
     }
 
   g_debug ("Getting list of player names from D-Bus");
-  GVariant *reply = g_dbus_proxy_call_sync (
-      proxy, "ListNames", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
+  GVariant *reply = g_dbus_connection_call_sync (
+      connection, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+      "org.freedesktop.DBus", "ListNames", NULL, G_VARIANT_TYPE ("(as)"),
+      G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
 
   if (tmp_error != NULL)
     {
       g_propagate_error (err, tmp_error);
-      g_object_unref (proxy);
+      g_object_unref (connection);
       return NULL;
     }
 
@@ -330,28 +381,42 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
       if (g_strcmp0 (names[i], PLAYERCTLD_BUS_NAME) == 0)
         {
           g_debug ("%s", "Playerctld is running. Getting names from there.");
-          has_playerctld = TRUE;
 
           GVariant *playerctld_reply = NULL;
+          /* XXX: DRY: the pair { PLAYERCTLD_INTERFACE,
+             PLAYERCTLD_INTERFACE_LEGACY } is also declared in playerctl-
+             daemon.c:409; put it in playerctl-common.h. */
           const gchar *interfaces[]
               = { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY };
           for (gsize j = 0;
                j < G_N_ELEMENTS (interfaces) && playerctld_reply == NULL; j++)
             {
-              GDBusProxy *playerctld_proxy = g_dbus_proxy_new_for_bus_sync (
-                  bus_type, G_DBUS_PROXY_FLAGS_NONE, NULL, PLAYERCTLD_BUS_NAME,
-                  "/org/mpris/MediaPlayer2", interfaces[j], NULL, &tmp_error);
+              // an older playerctld only serves the legacy interface
+              GVariant *property = g_dbus_connection_call_sync (
+                  connection, PLAYERCTLD_BUS_NAME, "/org/mpris/MediaPlayer2",
+                  "org.freedesktop.DBus.Properties", "Get",
+                  g_variant_new ("(ss)", interfaces[j], "PlayerNames"),
+                  G_VARIANT_TYPE ("(v)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL,
+                  &tmp_error);
               if (tmp_error != NULL)
                 {
-                  g_warning ("Could not get player names from playerctld: %s",
-                             tmp_error->message);
+                  g_debug ("Could not get player names from %s: %s",
+                           interfaces[j], tmp_error->message);
                   g_clear_error (&tmp_error);
                   continue;
                 }
-              // an older playerctld only serves the legacy interface
-              playerctld_reply = g_dbus_proxy_get_cached_property (
-                  playerctld_proxy, "PlayerNames");
-              g_object_unref (playerctld_proxy);
+              GVariant *boxed = g_variant_get_child_value (property, 0);
+              GVariant *value = g_variant_get_variant (boxed);
+              g_variant_unref (boxed);
+              g_variant_unref (property);
+              if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
+                {
+                  playerctld_reply = value;
+                }
+              else
+                {
+                  g_variant_unref (value);
+                }
             }
           if (playerctld_reply == NULL)
             {
@@ -360,10 +425,12 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
               break;
             }
 
-          g_variant_unref (reply);
           g_free (names);
+          g_variant_unref (reply_child);
+          g_variant_unref (reply);
 
           reply = playerctld_reply;
+          reply_child = NULL;
           names = g_variant_get_strv (reply, &reply_count);
           has_playerctld = TRUE;
 
@@ -388,9 +455,12 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
       players = g_list_sort (players, (GCompareFunc)pctl_player_name_compare);
     }
 
-  g_object_unref (proxy);
+  g_object_unref (connection);
   g_variant_unref (reply);
-  g_variant_unref (reply_child);
+  if (reply_child != NULL)
+    {
+      g_variant_unref (reply_child);
+    }
   g_free (names);
 
   return players;

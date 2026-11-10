@@ -1,11 +1,9 @@
 """US-10.9: As a user, I want playerctld to survive a player returning an
 error with an empty body."""
 
-import pytest
 from dbus_next import Message, MessageType
 
 
-@pytest.mark.xfail(reason='needs the playerctld empty-body fix (a63b953)')
 async def test_proxy_error_empty_body(playerctl, playerctld, mpris_factory):
     [mpris] = await mpris_factory('emptyerror')
     await mpris.set_artist_title('artist', 'title')

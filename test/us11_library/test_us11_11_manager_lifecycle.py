@@ -162,6 +162,39 @@ async def test_same_name_on_both_buses_vanishes_independently(
     assert await proc.queue.get() == 'name-vanished twin dbus-system'
 
 
+async def test_vanishing_unmanaged_name_keeps_players_on_both_buses(
+    gi_start, mpris_factory
+):
+    [_, other] = await mpris_factory('twin', 'other')
+    await mpris_factory('twin', system=True)
+    proc = await gi_start(
+        compose(
+            AUTO_MANAGE,
+            """
+        def start():
+            for name in manager.props.player_names:
+                if name.name != 'other':
+                    manager.manage_player(Playerctl.Player.new_from_name(name))
+            out('managed', len(manager.props.players))
+
+        GLib.idle_add(start)
+        run_loop()
+    """,
+        )
+    )
+    await expect(
+        proc,
+        'player-appeared dbus-session/twin',
+        'player-appeared dbus-system/twin',
+    )
+    assert await proc.queue.get() == 'managed 2'
+
+    await other.disconnect()
+
+    # no managed player has that name, so nothing but the name vanishes
+    assert await proc.queue.get() == 'name-vanished other dbus-session'
+
+
 async def test_name_appearing_while_players_are_managed(
     gi_start, mpris_factory
 ):

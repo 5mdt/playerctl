@@ -7,6 +7,7 @@ from ..helpers.daemon import (
     player_names,
     settle,
     wait_for_player_names,
+    wait_for_players,
 )
 from ..helpers.mpris import PLAYER_INTERFACE, ROOT_INTERFACE, gated
 
@@ -46,7 +47,9 @@ async def test_failed_player_does_not_disturb_the_active_player(
     bus_address, playerctld, daemon_bus, playerctl, mpris_factory
 ):
     [good] = await mpris_factory('good')
+    await wait_for_players(daemon_bus, [PREFIX + 'good'])
     await good.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PREFIX + 'good'])
     listener = await SignalListener.start(bus_address)
 
     await mpris_factory(

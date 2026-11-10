@@ -165,3 +165,22 @@ async def test_default_with_non_string_first_argument(metadata_test):
     metadata_test.add('{{default(shuffle, "x")}}', 'false')
 
     await metadata_test.run()
+
+
+async def test_default_skips_a_list_with_an_empty_string(
+    playerctl, mpris_factory
+):
+    # 5mdt/playerctl#32: podcasts have an empty artist and the name in album
+    [mpris] = await mpris_factory('podcast')
+    mpris.metadata = {
+        'xesam:artist': Variant('as', ['']),
+        'xesam:album': Variant('s', 'Podcast'),
+    }
+    await mpris.ping()
+
+    result = await playerctl.run(
+        "metadata --format '{{default(artist, album)}}'"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'Podcast'

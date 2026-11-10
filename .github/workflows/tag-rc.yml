@@ -12,9 +12,14 @@ permissions:
   actions: write
 jobs:
   tag-rc:
-    if: ${{ github.ref == 'refs/heads/develop' }}
     runs-on: ubuntu-24.04
     steps:
+      - name: Check that the workflow runs on develop
+        run: |
+          if [ "${GITHUB_REF}" != refs/heads/develop ]; then
+            echo "::error::run Tag RC on develop, not on ${GITHUB_REF}"
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

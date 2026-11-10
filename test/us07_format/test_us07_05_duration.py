@@ -1,6 +1,7 @@
 """US-7.5: As a bar author, I want a `duration()` helper (time formatting)."""
 
 import pytest
+from dbus_next import Variant
 
 # microseconds -> `m:ss`, or `h:mm:ss` once an hour is reached
 DURATIONS = [
@@ -61,3 +62,24 @@ async def test_duration_wrong_argument_count(metadata_test):
     metadata_test.add('{{duration(position, position)}}', '', ret=1)
 
     await metadata_test.run()
+
+
+@pytest.mark.parametrize(
+    'signature, value',
+    [('x', 200000000), ('t', 200000000), ('s', '200000000')],
+)
+async def test_duration_of_length_types(
+    signature, value, playerctl, mpris_factory
+):
+    # 5mdt/playerctl#54: some players send mpris:length as a string (the
+    # specification says int64); duration() rejected it
+    [mpris] = await mpris_factory('lengths')
+    mpris.metadata = {'mpris:length': Variant(signature, value)}
+    await mpris.ping()
+
+    result = await playerctl.run(
+        "metadata --format '{{duration(mpris:length)}}'"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == '3:20'

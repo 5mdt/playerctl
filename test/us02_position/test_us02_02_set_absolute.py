@@ -1,6 +1,7 @@
 """US-2.2: As a user, I want `position 30` to jump to an absolute position."""
 
 import pytest
+from dbus_next.service import Variant
 
 
 @pytest.mark.parametrize(
@@ -34,6 +35,32 @@ async def test_set_position_without_track_id_fails(playerctl, mpris_factory):
     [mpris] = await mpris_factory('seeker')
 
     result = await playerctl.run('-p seeker position 30')
+
+    assert result.returncode == 1
+    assert mpris.set_position_called_with is None
+
+
+async def test_set_position_with_string_track_id(playerctl, mpris_factory):
+    # altdesktop/playerctl#264: a string mpris:trackid is tolerated
+    [mpris] = await mpris_factory('seeker')
+    mpris.metadata = {'mpris:trackid': Variant('s', '/track/str')}
+
+    result = await playerctl.run('-p seeker position 10')
+
+    assert result.returncode == 0, result.stderr
+    assert mpris.set_position_called_with == ('/track/str', 10000000)
+
+
+@pytest.mark.parametrize('track_id', ['not a path', 'file:///x', '', '/a/'])
+async def test_set_position_with_invalid_object_path_fails_cleanly(
+    track_id, playerctl, mpris_factory
+):
+    # altdesktop/playerctl#264, altdesktop/playerctl#287: used to abort in
+    # g_variant_new_object_path
+    [mpris] = await mpris_factory('seeker')
+    mpris.metadata = {'mpris:trackid': Variant('s', track_id)}
+
+    result = await playerctl.run('-p seeker position 10')
 
     assert result.returncode == 1
     assert mpris.set_position_called_with is None

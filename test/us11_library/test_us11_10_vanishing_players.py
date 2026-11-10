@@ -137,6 +137,9 @@ async def test_exit_is_emitted_once_and_getters_survive(
     assert await proc.queue.get() == 'False False False False'
     assert await proc.queue.get() == '0.0 False None'
     assert await proc.queue.get() == 'True van'
+    # XXX: SUSPICIOUS: a 1.5 s negative wait on a process that has already
+    # printed its last line; slow for what it proves, use the process exit
+    # instead.
     await asyncio.sleep(1.5)
     assert proc.queue.empty()
 

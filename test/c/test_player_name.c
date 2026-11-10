@@ -1,3 +1,6 @@
+/* STYLE: not GNU style (see test_common.c); 6 lines exceed 79 columns.
+   run_isolated() is copied into all three C test files; share it in a
+   header. */
 /* Unit tests for PlayerctlPlayerName (copy/free). */
 
 #include <glib.h>

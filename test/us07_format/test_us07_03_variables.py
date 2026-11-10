@@ -2,6 +2,8 @@
 (`mpris:length`), shortcuts `artist`/`title`/`album`, plus `playerName`,
 `playerInstance`, `status`, `loop`, `shuffle`, `volume`, `position`."""
 
+import pytest
+
 from ..helpers.format import PLAYER_INSTANCE, PLAYER_NAME
 
 
@@ -42,3 +44,24 @@ async def test_position(metadata_test, format_player):
     metadata_test.add('{{position / 1000000}}', '12.5')
 
     await metadata_test.run()
+
+
+@pytest.mark.parametrize(
+    'bus_name, expected',
+    [
+        ('io.bassi.Amberol', 'io.bassi.Amberol'),
+        ('io.bassi.Amberol.instance12', 'io.bassi.Amberol'),
+        ('vlc.instance7389', 'vlc'),
+    ],
+)
+async def test_player_name_of_dotted_player(
+    bus_name, expected, playerctl, mpris_factory
+):
+    # 5mdt/playerctl#56: playerName was cut at the first dot (`io`)
+    [mpris] = await mpris_factory(bus_name)
+    await mpris.set_artist_title('artist', 'title')
+
+    result = await playerctl.run("metadata --format '{{playerName}}'")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected

@@ -35,8 +35,8 @@ def _script(body):
     return PRELUDE + textwrap.dedent(body)
 
 
-async def _spawn(bus_address, body):
-    env = os.environ.copy()
+async def _spawn(bus_address, body, env=None):
+    env = {**os.environ, **(env or {})}
     env['DBUS_SESSION_BUS_ADDRESS'] = bus_address
     return await asyncio.create_subprocess_exec(
         sys.executable,
@@ -48,19 +48,19 @@ async def _spawn(bus_address, body):
     )
 
 
-async def run_gi(bus_address, body):
+async def run_gi(bus_address, body, env=None):
     '''Run a PyGObject snippet to completion and return its CommandResult.'''
-    proc = await _spawn(bus_address, body)
+    proc = await _spawn(bus_address, body, env)
     stdout, stderr = await proc.communicate()
     return CommandResult(stdout, stderr, proc.returncode)
 
 
-async def start_gi(bus_address, body):
+async def start_gi(bus_address, body, env=None):
     '''Start a long-running snippet; wait until it prints `ready`.
 
     Stdout lines are available from the returned process's `queue`.
     '''
-    proc = PlayerctlProcess(await _spawn(bus_address, body))
+    proc = PlayerctlProcess(await _spawn(bus_address, body, env))
     line = await asyncio.wait_for(proc.queue.get(), 4)
     assert line == 'ready', line
     return proc
@@ -100,3 +100,8 @@ def set_sort_func(manager, key):
     _pctl.playerctl_player_manager_set_sort_func(
         ctypes.c_void_p(pointer), callback, None, None)
 '''
+
+
+# Makes a g_critical abort the process, so a wrongly typed D-Bus value that
+# reaches GLib unchecked fails a test instead of only logging.
+FATAL_CRITICALS = {'G_DEBUG': 'fatal-criticals'}
