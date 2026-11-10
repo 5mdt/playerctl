@@ -65,6 +65,9 @@ async def test_activated_daemon_serves_requests(
     code, _, stderr = await run_daemon_command(bus_address)
     assert code == 0, stderr
     await wait_for_name(bus_address, PLAYERCTLD_NAME)
+    # XXX: SUSPICIOUS: fixed sleep after wait_for_name(); it hides a missing
+    # readiness condition (the daemon has the name before it has scanned the
+    # players).
     await asyncio.sleep(0.2)
 
     result = await playerctl.run('-p playerctld status')

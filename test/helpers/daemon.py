@@ -191,3 +191,19 @@ async def wait_for_player_names(bus, expected, timeout=2.0):
             f'PlayerNames is {names}, expected {expected}'
         )
         await asyncio.sleep(0.02)
+
+
+async def wait_for_players(bus, expected, timeout=2.0):
+    """Wait until playerctld manages exactly the players `expected`, in any
+    order. A player is only listed once its start-up activation is done, so
+    this tells that the activation signals have been sent; they precede the
+    reply to the PlayerNames request."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        names = await player_names(bus)
+        if sorted(names) == sorted(expected):
+            return names
+        assert asyncio.get_running_loop().time() < deadline, (
+            f'PlayerNames is {names}, expected {expected} in any order'
+        )
+        await asyncio.sleep(0.02)

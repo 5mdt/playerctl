@@ -9,6 +9,8 @@ from ..helpers.daemon import (
     playerctld_call,
     playerctld_cli,
     playerctld_shift,
+    wait_for_player_names,
+    wait_for_players,
 )
 from ..helpers.mpris import PLAYERCTLD_INTERFACE
 from ..helpers.follow import follow_cmd, next_line
@@ -88,7 +90,9 @@ async def test_single_player_stays_active_without_signals(
     member, bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris] = await mpris_factory('player1')
+    await wait_for_players(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     await mpris.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     listener = await SignalListener.start(bus_address)
 
     reply = await playerctld_call(daemon_bus, PLAYERCTLD_INTERFACE, member)

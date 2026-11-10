@@ -10,6 +10,9 @@ import pytest
 async def test_out_of_range_position_is_rejected(
     arg, playerctl, mpris_factory
 ):
+    # XXX: stale: the "audit: playerctl-cli.c:NNN" line references (here and
+    # in the other audit comments) no longer match the source; name the
+    # function instead.
     # audit: playerctl-cli.c:402 double -> gint64 cast is undefined behaviour
     [mpris] = await mpris_factory('seeker')
     await mpris.set_artist_title('artist', 'title')

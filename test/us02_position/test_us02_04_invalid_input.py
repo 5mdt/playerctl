@@ -17,6 +17,8 @@ async def test_invalid_position_rejected(arg, playerctl, mpris_factory):
     assert mpris.set_position_called_with is None
 
 
+# XXX: DRY: identical body to test_invalid_position_rejected above; only the
+# parameter list differs. Merge the lists.
 @pytest.mark.parametrize('arg', ['10abc', '5s', '1.5.2', '3x+', '2:30'])
 async def test_trailing_garbage_rejected(arg, playerctl, mpris_factory):
     [mpris] = await mpris_factory('seeker')

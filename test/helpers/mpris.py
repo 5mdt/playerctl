@@ -69,6 +69,8 @@ async def wait_for_name(bus_address, name, present=True, timeout=3.0):
         bus.disconnect()
 
 
+# XXX: KISS: eight parameters in one signature (ruff PLR0913); a small
+# dataclass or keyword-only options would read better.
 async def setup_mpris(
     *names,
     bus_address=None,

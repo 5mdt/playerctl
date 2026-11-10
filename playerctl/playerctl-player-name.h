@@ -42,9 +42,11 @@
  * connected to this name and ready to command and query.
  */
 
+/* STYLE: the identifier line "PlayerctlSource" has no trailing colon, so
+   gtk-doc ignores it. */
 /**
  * PlayerctlSource
- * @PLAYERCTL_SOURCE_NONE: Only for unitialized players. Source will be chosen
+ * @PLAYERCTL_SOURCE_NONE: Only for uninitialized players. Source will be chosen
  * automatically.
  * @PLAYERCTL_SOURCE_DBUS_SESSION: The player is on the DBus session bus.
  * @PLAYERCTL_SOURCE_DBUS_SYSTEM: The player is on the DBus system bus.
@@ -73,7 +75,7 @@ GType playerctl_player_name_get_type (void);
  * @instance: the complete name and instance of the player.
  * @source: the source of the player name.
  *
- * Event container for when names of players appear or disapear as the
+ * Event container for when names of players appear or disappear as the
  * controllable media player applications open and close.
  */
 struct _PlayerctlPlayerName

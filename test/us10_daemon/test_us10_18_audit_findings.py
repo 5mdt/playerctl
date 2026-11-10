@@ -10,6 +10,7 @@ from ..helpers.daemon import (
     settle,
     start_playerctld,
     wait_for_player_names,
+    wait_for_players,
 )
 from ..helpers.gi import FATAL_CRITICALS
 from ..helpers.mpris import (
@@ -36,13 +37,18 @@ async def property_changes(listener):
 
 
 async def test_invalidated_optional_properties_name_their_interface(
-    bus_address, playerctld, mpris_factory
+    bus_address, playerctld, daemon_bus, mpris_factory
 ):
+    # XXX: stale audit line references (here and below), see
+    # test_us02_05_out_of_range.py; the file is organised by audit round,
+    # not by user story like the rest of the suite.
     # audit: playerctl-daemon.c:527,548 the TrackList and Playlists
     # invalidations were sent with the Root interface name
     [rich] = await mpris_factory('rich', tracklist=True, playlists=True)
     [bare] = await mpris_factory('bare')
+    await wait_for_players(daemon_bus, [PREFIX + 'rich', PREFIX + 'bare'])
     await rich.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PREFIX + 'rich', PREFIX + 'bare'])
     listener = await SignalListener.start(bus_address)
 
     await bare.set_artist_title('artist2', 'title2')

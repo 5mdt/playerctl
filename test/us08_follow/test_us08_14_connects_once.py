@@ -16,6 +16,11 @@ from ..helpers.follow import expect_no_line, next_line
 async def test_own_property_in_format_renders_once_per_change(
     command, prop, first, changed, expected, playerctl, mpris_factory
 ):
+    # FIXME: this test cannot fail. The duplicate handler it describes is
+    # still in the source (playerctl-cli.c:1394) but cli_print_output()
+    # drops the repeated line, so "one line per change" holds either way.
+    # Count the handler connections, or the callback runs, instead of the
+    # output lines.
     # audit: playerctl-cli.c:1296 `&cmd != player_cmd` compares a stack copy,
     # so the follow signal was connected twice
     [mpris] = await mpris_factory('test1')

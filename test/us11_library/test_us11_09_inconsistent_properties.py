@@ -123,6 +123,8 @@ async def test_invalid_playback_status_reply_on_track_change_is_ignored(
 
     assert await proc.queue.get() == 'metadata'
     assert await proc.proc.wait() == 0, 'the library crashed'
+    # XXX: SUSPICIOUS: the process has already exited here (wait() above),
+    # so the sleep only waits for the reader task; read until EOF instead.
     await asyncio.sleep(0.1)
     assert proc.queue.empty(), 'a status was announced'
 

@@ -9,6 +9,8 @@ from ..helpers.daemon import (
     player_names,
     playerctld_shift,
     start_playerctld,
+    wait_for_player_names,
+    wait_for_players,
 )
 from ..helpers.mpris import PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY
 
@@ -19,10 +21,12 @@ PLAYER2 = 'org.mpris.MediaPlayer2.player2'
 
 @pytest.mark.parametrize('interface', INTERFACES)
 async def test_signals_when_another_player_becomes_active(
-    interface, bus_address, playerctld, mpris_factory
+    interface, bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris1, mpris2] = await mpris_factory('player1', 'player2')
+    await wait_for_players(daemon_bus, [PLAYER1, PLAYER2])
     await mpris1.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PLAYER1, PLAYER2])
     listener = await SignalListener.start(bus_address)
 
     await mpris2.set_artist_title('artist2', 'title2')
@@ -34,9 +38,13 @@ async def test_signals_when_another_player_becomes_active(
     await listener.close()
 
 
-async def test_begin_precedes_end(bus_address, playerctld, mpris_factory):
+async def test_begin_precedes_end(
+    bus_address, playerctld, daemon_bus, mpris_factory
+):
     [mpris1, mpris2] = await mpris_factory('player1', 'player2')
+    await wait_for_players(daemon_bus, [PLAYER1, PLAYER2])
     await mpris1.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PLAYER1, PLAYER2])
     listener = await SignalListener.start(bus_address)
 
     await mpris2.set_artist_title('artist2', 'title2')
@@ -55,10 +63,14 @@ async def test_begin_precedes_end(bus_address, playerctld, mpris_factory):
     await listener.close()
 
 
-async def test_signals_on_shift(bus_address, playerctld, mpris_factory):
+async def test_signals_on_shift(
+    bus_address, playerctld, daemon_bus, mpris_factory
+):
     [mpris1, mpris2] = await mpris_factory('player1', 'player2')
+    await wait_for_players(daemon_bus, [PLAYER1, PLAYER2])
     await mpris1.set_artist_title('artist1', 'title1')
     await mpris2.set_artist_title('artist2', 'title2')
+    await wait_for_player_names(daemon_bus, [PLAYER2, PLAYER1])
     listener = await SignalListener.start(bus_address)
 
     assert await playerctld_shift(bus_address) == 0
@@ -134,12 +146,14 @@ def assert_full_announcement(seen):
 
 
 async def test_new_active_player_gets_full_properties_and_seeked(
-    bus_address, playerctld, mpris_factory
+    bus_address, playerctld, daemon_bus, mpris_factory
 ):
     # the player appears while playerctld is already running
     [mpris1] = await mpris_factory('player1')
     [mpris2] = await mpris_factory('player2', tracklist=True, playlists=True)
+    await wait_for_players(daemon_bus, [PLAYER1, PLAYER2])
     await mpris1.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PLAYER1, PLAYER2])
     listener = await SignalListener.start(bus_address)
 
     mpris2.position = 12345
@@ -170,10 +184,12 @@ async def test_preexisting_player_gets_full_properties_and_seeked(
 
 
 async def test_optional_interfaces_are_not_announced_when_unsupported(
-    bus_address, playerctld, mpris_factory
+    bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris1, mpris2] = await mpris_factory('player1', 'player2')
+    await wait_for_players(daemon_bus, [PLAYER1, PLAYER2])
     await mpris1.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PLAYER1, PLAYER2])
     listener = await SignalListener.start(bus_address)
 
     await mpris2.set_artist_title('artist2', 'title2')
@@ -188,10 +204,12 @@ async def test_optional_interfaces_are_not_announced_when_unsupported(
 
 
 async def test_invalidation_names_the_right_interfaces_when_last_player_leaves(
-    bus_address, playerctld, mpris_factory
+    bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris1] = await mpris_factory('player1', tracklist=True, playlists=True)
+    await wait_for_players(daemon_bus, [PLAYER1])
     await mpris1.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, [PLAYER1])
     listener = await SignalListener.start(bus_address)
 
     await mpris1.disconnect()

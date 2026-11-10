@@ -4,7 +4,12 @@ forwards calls, properties and signals to the active player."""
 import pytest
 from dbus_next import MessageType, Variant
 
-from ..helpers.daemon import SignalListener, playerctld_call
+from ..helpers.daemon import (
+    SignalListener,
+    playerctld_call,
+    wait_for_player_names,
+    wait_for_players,
+)
 from ..helpers.follow import follow_cmd
 
 PLAYER = 'org.mpris.MediaPlayer2.Player'
@@ -53,10 +58,11 @@ async def test_proxies_metadata_of_the_active_player(
 
 
 async def test_forwards_seeked_signal_of_the_active_player(
-    bus_address, playerctld, mpris_factory
+    bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris] = await mpris_factory('player1')
     await mpris.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     listener = await SignalListener.start(bus_address)
 
     mpris.seeked_value = 5000000
@@ -88,10 +94,12 @@ async def test_forwards_tracklist_calls_and_properties(
 
 
 async def test_forwards_tracklist_property_changes(
-    bus_address, playerctld, mpris_factory
+    bus_address, playerctld, daemon_bus, mpris_factory
 ):
     [mpris] = await mpris_factory('player1', tracklist=True)
+    await wait_for_players(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     await mpris.set_artist_title('artist1', 'title1')
+    await wait_for_player_names(daemon_bus, ['org.mpris.MediaPlayer2.player1'])
     listener = await SignalListener.start(bus_address)
 
     mpris.tracklist.tracks = ['/track/3']

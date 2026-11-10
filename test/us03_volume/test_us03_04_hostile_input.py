@@ -5,6 +5,8 @@ import pytest
 
 
 async def test_empty_volume_is_rejected(playerctl, mpris_factory):
+    # XXX: stale audit line references (also L24), see
+    # test_us02_05_out_of_range.py.
     # audit: playerctl-cli.c:499 strlen("") - 1 wraps and volume[last] reads
     # out of bounds
     [mpris] = await mpris_factory('commands')
