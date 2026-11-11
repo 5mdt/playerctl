@@ -25,7 +25,14 @@
 #include <playerctl/playerctl.h>
 #include <stdbool.h>
 
+#define LENGTH(array) (sizeof (array) / sizeof ((array)[0]))
+
 #define MPRIS_PREFIX "org.mpris.MediaPlayer2."
+#define MPRIS_PATH "/org/mpris/MediaPlayer2"
+#define PLAYER_INTERFACE "org.mpris.MediaPlayer2.Player"
+#define ROOT_INTERFACE "org.mpris.MediaPlayer2"
+#define PLAYLISTS_INTERFACE "org.mpris.MediaPlayer2.Playlists"
+#define TRACKLIST_INTERFACE "org.mpris.MediaPlayer2.TrackList"
 
 #define PLAYERCTLD_BUS_NAME "org.mpris.MediaPlayer2.playerctld"
 
@@ -33,6 +40,10 @@
 /* Deprecated: served alongside PLAYERCTLD_INTERFACE for compatibility. Remove
  * in the next major version. */
 #define PLAYERCTLD_INTERFACE_LEGACY "com.github.altdesktop.playerctld"
+
+/* The playerctld interfaces, the current one first. */
+#define PLAYERCTLD_INTERFACES                                                 \
+  { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY }
 
 gboolean pctl_parse_playback_status (const gchar *status_str,
                                      PlayerctlPlaybackStatus *status);
@@ -55,11 +66,10 @@ gchar *pctl_player_base_name (const gchar *instance);
 PlayerctlPlayerName *pctl_player_name_new (const gchar *instance,
                                            PlayerctlSource source);
 
-/* STYLE: pctl_player_name_compare, _instance_compare, _find and
-   _find_instance take non-const pointers (gchar *player_id) although they
-   do not modify them. */
-gint pctl_player_name_compare (PlayerctlPlayerName *name_a,
-                               PlayerctlPlayerName *name_b);
+/* STYLE: pctl_player_name_instance_compare, _find and _find_instance take
+   non-const pointers (gchar *player_id) although they do not modify them. */
+gint pctl_player_name_compare (const PlayerctlPlayerName *name_a,
+                               const PlayerctlPlayerName *name_b);
 
 gint pctl_player_name_instance_compare (PlayerctlPlayerName *name,
                                         PlayerctlPlayerName *instance);

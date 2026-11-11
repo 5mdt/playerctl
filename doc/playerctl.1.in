@@ -236,6 +236,12 @@ to uppercase.
 .It Fn markup_escape str
 Escape XML characters in string
 .Va str .
+.It Fn json_escape str
+Escape string
+.Va str
+for use inside a JSON string:
+quotes, backslashes and control characters are escaped.
+The surrounding quotes are not added.
 .It Fn default str1 str2
 Print
 .Fa str1
@@ -245,7 +251,10 @@ if set, else print
 Reformat the microsecond timestamp
 .Va time
 in the form
-.Ql hh:mm:ss .
+.Ql [h:]mm:ss ,
+with a leading
+.Ql -
+for a negative time.
 Intended for
 .Va position
 and
@@ -254,7 +263,9 @@ and
 Try to convert the value for
 .Fa key
 to an emoji representation. Currently implemented for
-.Fa status
+.Fa status ,
+.Fa loop ,
+.Fa shuffle
 and
 .Fa volume .
 .It Fn trunc str len
@@ -263,6 +274,41 @@ Truncate
 to a maximum of
 .Fa len
 characters, adding an ellipsis if necessary.
+.It Fn round num
+Round the number
+.Fa num
+to the nearest integer, halves away from zero.
+.It Fn int num
+Drop the fractional part of the number
+.Fa num .
+.It Fn replace str from to
+Replace every occurrence of
+.Fa from
+in
+.Fa str
+with
+.Fa to .
+.It Fn join list sep
+Join the elements of
+.Fa list ,
+such as
+.Va artist ,
+with the separator
+.Fa sep .
+.It Fn pad str width
+Pad
+.Fa str
+with spaces to
+.Fa width
+characters.
+A negative
+.Fa width
+aligns the string to the right.
+.It Fn uri_decode str
+Decode the percent escapes in
+.Fa str ,
+for example in
+.Va xesam:url .
 .El
 .Pp
 The template language is also able to perform basic math operations.

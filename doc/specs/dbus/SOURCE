@@ -1,0 +1,5 @@
+Document: D-Bus Specification (doc/dbus-specification.xml, COPYING)
+Source:   https://gitlab.freedesktop.org/dbus/dbus/-/blob/166d90ba6aab797bc0c32b7576cd9c76eeec5c7f/doc/dbus-specification.xml
+Revision: 166d90ba6aab797bc0c32b7576cd9c76eeec5c7f (2026-09-21, spec version 0.43)
+License:  AFL-2.1 OR GPL-2.0-or-later (see COPYING)
+Files are byte-identical to upstream. Update with scripts/vendor-specs.sh.

@@ -83,3 +83,23 @@ async def test_duration_of_length_types(
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == '3:20'
+
+
+@pytest.mark.parametrize(
+    'expr,expected',
+    [
+        ('-5000000', '-0:05'),
+        ('-61000000', '-1:01'),
+        ('-3661000000', '-1:01:01'),
+        ('mpris:length - position', '-0:05'),
+    ],
+)
+async def test_duration_of_negative_values(
+    expr, expected, metadata_test, format_player
+):
+    format_player.playback_status = 'Paused'
+    format_player.position = 5100000  # 5 s past the 100000 us track length
+    await format_player.ping()
+    metadata_test.add('{{duration(%s)}}' % expr, expected)
+
+    await metadata_test.run()

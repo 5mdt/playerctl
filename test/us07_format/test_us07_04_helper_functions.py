@@ -1,5 +1,6 @@
 """US-7.4: As a bar author, I want the helpers `lc`, `uc`, `markup_escape`,
-`default`, `emoji`, `trunc`."""
+`default`, `emoji`, `trunc`, `json_escape`, `round`, `int`, `replace`, `join`, `pad`,
+`uri_decode`."""
 
 import pytest
 from dbus_next import Variant
@@ -111,7 +112,6 @@ async def test_trunc_bad_length(metadata_test):
     # the length must be a number
     metadata_test.add('{{trunc(title, "5")}}', '', ret=1)
     metadata_test.add('{{trunc(title, title)}}', '', ret=1)
-    metadata_test.add('{{trunc(title, mpris:length)}}', '', ret=1)
 
     await metadata_test.run()
 
@@ -132,9 +132,9 @@ async def test_emoji_passthrough_for_other_values(metadata_test):
     await metadata_test.run()
 
 
-async def test_emoji_status_unknown_value_passthrough(metadata_test):
-    # `status` is always a valid playback status, so use the loop string
-    metadata_test.add('{{emoji(loop)}}', 'None')
+async def test_emoji_loop_of_a_default_player(metadata_test):
+    # the loop status of the test player is None
+    metadata_test.add('{{emoji(loop)}}', '➡️')
 
     await metadata_test.run()
 
@@ -184,3 +184,100 @@ async def test_default_skips_a_list_with_an_empty_string(
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'Podcast'
+
+
+async def test_trunc_accepts_an_integer_length(metadata_test, format_player):
+    format_player.playback_status = 'Paused'
+    format_player.position = 5000000
+    await format_player.ping()
+    # position is an int64, not a number literal
+    metadata_test.add('{{trunc(title, position / 1000000)}}', f'{TITLE[:5]}…')
+
+    await metadata_test.run()
+
+
+async def test_emoji_loop_and_shuffle(playerctl, mpris_factory):
+    [mpris] = await mpris_factory('emoji-loop-shuffle-test')
+    mpris.metadata = {'mpris:length': Variant('x', 100000)}
+    await mpris.ping()
+
+    for loop, emoji in (('Track', '🔂'), ('Playlist', '🔁'), ('None', '➡️')):
+        mpris.loop_status = loop
+        cmd = await playerctl.run("metadata --format '{{emoji(loop)}}'")
+        assert cmd.stdout == emoji, cmd.stderr
+
+    for shuffle, emoji in ((True, '🔀'), (False, '➡️')):
+        mpris.shuffle = shuffle
+        cmd = await playerctl.run("metadata --format '{{emoji(shuffle)}}'")
+        assert cmd.stdout == emoji, cmd.stderr
+
+
+async def test_round_and_int(metadata_test):
+    metadata_test.add('{{round(volume * 100)}}', '200')
+    metadata_test.add('{{round(2.5)}}', '3')
+    metadata_test.add('{{round(-2.5)}}', '-3')
+    metadata_test.add('{{round(2.4)}}', '2')
+    metadata_test.add('{{int(2.9)}}', '2')
+    metadata_test.add('{{int(-2.9)}}', '-2')
+    metadata_test.add('{{round(xesam:missing)}}', '')
+
+    await metadata_test.run()
+
+
+async def test_round_rejects_text(metadata_test):
+    metadata_test.add('{{round(title)}}', '', ret=1)
+    metadata_test.add('{{int(title)}}', '', ret=1)
+
+    await metadata_test.run()
+
+
+async def test_replace(metadata_test):
+    metadata_test.add('{{replace(title, " ", "_")}}', TITLE.replace(' ', '_'))
+    metadata_test.add('{{replace(title, "zzz", "_")}}', TITLE)
+    metadata_test.add('{{replace(title, "", "_")}}', TITLE)
+    metadata_test.add('{{replace(xesam:missing, "a", "b")}}', '')
+
+    await metadata_test.run()
+
+
+async def test_join(metadata_test):
+    metadata_test.add('{{join(artist, " & ")}}', ARTIST)
+    metadata_test.add('{{join(title, ", ")}}', TITLE)
+    metadata_test.add('{{join(xesam:missing, ", ")}}', '')
+
+    await metadata_test.run()
+
+
+async def test_pad(metadata_test):
+    # the test helper strips the output, so mark both ends
+    metadata_test.add('|{{pad("ab", 5)}}|', '|ab   |')
+    metadata_test.add('|{{pad("ab", -5)}}|', '|   ab|')
+    metadata_test.add('|{{pad("abcdef", 3)}}|', '|abcdef|')
+    metadata_test.add('|{{pad(trunc(title, 3), 6)}}|', f'|{TITLE[:3]}…  |')
+
+    await metadata_test.run()
+
+
+async def test_pad_bad_width(metadata_test):
+    metadata_test.add('{{pad("ab", "5")}}', '', ret=1)
+
+    await metadata_test.run()
+
+
+async def test_uri_decode(metadata_test):
+    metadata_test.add('{{uri_decode("a%20b%26c")}}', 'a b&c')
+    metadata_test.add('{{uri_decode("plain")}}', 'plain')
+    metadata_test.add('{{uri_decode("bad%zz")}}', 'bad%zz')
+
+    await metadata_test.run()
+
+
+async def test_json_escape(metadata_test):
+    metadata_test.add('{{json_escape(title)}}', TITLE)
+    metadata_test.add('{{json_escape(xesam:escapeme)}}', '<hi>')
+    metadata_test.add('{{json_escape(xesam:missing)}}', '')
+    metadata_test.add(
+        '{"title": "{{json_escape(title)}}"}', '{"title": "%s"}' % TITLE
+    )
+
+    await metadata_test.run()

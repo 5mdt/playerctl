@@ -25,9 +25,26 @@
 #include <string.h>
 #include <strings.h>
 
-/* XXX: DRY: parse and to_string for the playback status and the loop status
-   (to L119) are four functions over two name tables; one table each would
-   do. */
+static const struct
+{
+  const gchar *name;
+  PlayerctlPlaybackStatus status;
+} playback_status_names[] = {
+  { "Playing", PLAYERCTL_PLAYBACK_STATUS_PLAYING },
+  { "Paused", PLAYERCTL_PLAYBACK_STATUS_PAUSED },
+  { "Stopped", PLAYERCTL_PLAYBACK_STATUS_STOPPED },
+};
+
+static const struct
+{
+  const gchar *name;
+  PlayerctlLoopStatus status;
+} loop_status_names[] = {
+  { "None", PLAYERCTL_LOOP_STATUS_NONE },
+  { "Track", PLAYERCTL_LOOP_STATUS_TRACK },
+  { "Playlist", PLAYERCTL_LOOP_STATUS_PLAYLIST },
+};
+
 gboolean
 pctl_parse_playback_status (const gchar *status_str,
                             PlayerctlPlaybackStatus *status)
@@ -37,20 +54,13 @@ pctl_parse_playback_status (const gchar *status_str,
       return FALSE;
     }
 
-  if (strcasecmp (status_str, "Playing") == 0)
+  for (gsize i = 0; i < G_N_ELEMENTS (playback_status_names); i++)
     {
-      *status = PLAYERCTL_PLAYBACK_STATUS_PLAYING;
-      return TRUE;
-    }
-  if (strcasecmp (status_str, "Paused") == 0)
-    {
-      *status = PLAYERCTL_PLAYBACK_STATUS_PAUSED;
-      return TRUE;
-    }
-  if (strcasecmp (status_str, "Stopped") == 0)
-    {
-      *status = PLAYERCTL_PLAYBACK_STATUS_STOPPED;
-      return TRUE;
+      if (strcasecmp (status_str, playback_status_names[i].name) == 0)
+        {
+          *status = playback_status_names[i].status;
+          return TRUE;
+        }
     }
 
   return FALSE;
@@ -59,14 +69,12 @@ pctl_parse_playback_status (const gchar *status_str,
 const gchar *
 pctl_playback_status_to_string (PlayerctlPlaybackStatus status)
 {
-  switch (status)
+  for (gsize i = 0; i < G_N_ELEMENTS (playback_status_names); i++)
     {
-    case PLAYERCTL_PLAYBACK_STATUS_PLAYING:
-      return "Playing";
-    case PLAYERCTL_PLAYBACK_STATUS_PAUSED:
-      return "Paused";
-    case PLAYERCTL_PLAYBACK_STATUS_STOPPED:
-      return "Stopped";
+      if (playback_status_names[i].status == status)
+        {
+          return playback_status_names[i].name;
+        }
     }
   return NULL;
 }
@@ -74,14 +82,12 @@ pctl_playback_status_to_string (PlayerctlPlaybackStatus status)
 const gchar *
 pctl_loop_status_to_string (PlayerctlLoopStatus status)
 {
-  switch (status)
+  for (gsize i = 0; i < G_N_ELEMENTS (loop_status_names); i++)
     {
-    case PLAYERCTL_LOOP_STATUS_NONE:
-      return "None";
-    case PLAYERCTL_LOOP_STATUS_TRACK:
-      return "Track";
-    case PLAYERCTL_LOOP_STATUS_PLAYLIST:
-      return "Playlist";
+      if (loop_status_names[i].status == status)
+        {
+          return loop_status_names[i].name;
+        }
     }
   return NULL;
 }
@@ -94,20 +100,13 @@ pctl_parse_loop_status (const gchar *status_str, PlayerctlLoopStatus *status)
       return FALSE;
     }
 
-  if (strcasecmp (status_str, "None") == 0)
+  for (gsize i = 0; i < G_N_ELEMENTS (loop_status_names); i++)
     {
-      *status = PLAYERCTL_LOOP_STATUS_NONE;
-      return TRUE;
-    }
-  if (strcasecmp (status_str, "Track") == 0)
-    {
-      *status = PLAYERCTL_LOOP_STATUS_TRACK;
-      return TRUE;
-    }
-  if (strcasecmp (status_str, "Playlist") == 0)
-    {
-      *status = PLAYERCTL_LOOP_STATUS_PLAYLIST;
-      return TRUE;
+      if (strcasecmp (status_str, loop_status_names[i].name) == 0)
+        {
+          *status = loop_status_names[i].status;
+          return TRUE;
+        }
     }
 
   return FALSE;
@@ -187,11 +186,12 @@ pctl_bus_type_to_source (GBusType bus_type)
 gchar *
 pctl_player_base_name (const gchar *instance)
 {
-  /* XXX: SUSPICIOUS: 9 is strlen (".instance"), written as a bare number
-     three times in this function. */
-  const gchar *suffix = g_strrstr (instance, ".instance");
-  if (suffix != NULL && suffix != instance && suffix[9] != '\0'
-      && suffix[9 + strspn (suffix + 9, "0123456789")] == '\0')
+  static const gchar instance_marker[] = ".instance";
+  const gsize marker_len = sizeof (instance_marker) - 1;
+  const gchar *suffix = g_strrstr (instance, instance_marker);
+  if (suffix != NULL && suffix != instance && suffix[marker_len] != '\0'
+      && suffix[marker_len + strspn (suffix + marker_len, "0123456789")]
+             == '\0')
     {
       return g_strndup (instance, suffix - instance);
     }
@@ -201,11 +201,7 @@ pctl_player_base_name (const gchar *instance)
 PlayerctlPlayerName *
 pctl_player_name_new (const gchar *instance, PlayerctlSource source)
 {
-  /* XXX: SUSPICIOUS: g_slice_new() and g_slice_free() are deprecated since
-     GLib 2.76 (also playerctl-player-name.c); g_new() and g_free() do the
-     same. */
-  // NOLINTNEXTLINE(bugprone-sizeof-expression): g_slice_new macro expansion
-  PlayerctlPlayerName *player_name = g_slice_new (PlayerctlPlayerName);
+  PlayerctlPlayerName *player_name = g_new (PlayerctlPlayerName, 1);
   player_name->name = pctl_player_base_name (instance);
   player_name->instance = g_strdup (instance);
   player_name->source = source;
@@ -213,12 +209,11 @@ pctl_player_name_new (const gchar *instance, PlayerctlSource source)
 }
 
 /* XXX: SUSPICIOUS: pctl_player_name_compare() is used as a sort comparator
-   (L452) but returns 1 in both directions when the sources differ, so it is
-   not an ordering. It is only correct because all names of one bus share a
-   source. Parameters should be const (also L236, L274, L301). */
+   but returns 1 in both directions when the sources differ, so it is not an
+   ordering. It is only correct because all names of one bus share a source. */
 gint
-pctl_player_name_compare (PlayerctlPlayerName *name_a,
-                          PlayerctlPlayerName *name_b)
+pctl_player_name_compare (const PlayerctlPlayerName *name_a,
+                          const PlayerctlPlayerName *name_b)
 {
   if (name_a->source != name_b->source)
     {
@@ -252,9 +247,6 @@ pctl_player_name_string_instance_compare (const gchar *name,
   gboolean instance_match
       = !exact_match
         && (g_str_has_prefix (instance, name)
-            /* XXX: KISS: strlen (instance) > strlen (name) is implied by
-               the prefix test plus the "." test below it. */
-            && strlen (instance) > strlen (name)
             && g_str_has_prefix (instance + strlen (name), "."));
 
   if (exact_match || instance_match)
@@ -274,7 +266,7 @@ pctl_player_name_find (GList *list, gchar *player_id, PlayerctlSource source)
   };
 
   /* STYLE: pctl_player_name_compare and
-     instance_compare_item_key (L310) are cast to
+     instance_compare_item_key are cast to
      GCompareFunc; calling through a different
      function type is undefined in C. Wrap them with
      the right signature. */
@@ -315,8 +307,123 @@ pctl_player_name_list_destroy (GList *list)
   g_list_free_full (list, (GDestroyNotify)playerctl_player_name_free);
 }
 
-/* XXX: KISS: pctl_list_player_names_on_bus() is 130 lines with five nesting
-   levels (lizard). */
+/* Returns the bus connection, or NULL. *err is set only for an error other
+   than a missing D-Bus socket address, which is logged and passed through. */
+static GDBusConnection *
+get_bus_connection (GBusType bus_type, GError **err)
+{
+  GError *tmp_error = NULL;
+
+  /* Plain calls on the connection: a GDBusProxy would queue a cleanup
+     callback on the main context for every call. */
+  GDBusConnection *connection = g_bus_get_sync (bus_type, NULL, &tmp_error);
+
+  if (tmp_error == NULL)
+    {
+      return connection;
+    }
+
+  if (tmp_error->domain == G_IO_ERROR
+      && tmp_error->code == G_IO_ERROR_NOT_FOUND)
+    {
+      // XXX: This means the dbus socket address is not found which may
+      // mean that the bus is not running or the address was set
+      // incorrectly. I think we can pass through here because it is true
+      // that there are no names on the bus that is supposed to be at
+      // this socket path. But we need a better way of dealing with this
+      // case.
+      const gchar *message
+          = "D-Bus socket address not found, unable to list player names";
+      if (bus_type == G_BUS_TYPE_SESSION)
+        {
+          g_warning ("%s", message);
+        }
+      else
+        {
+          g_debug ("%s", message);
+        }
+
+      g_clear_error (&tmp_error);
+      return NULL;
+    }
+  g_propagate_error (err, tmp_error);
+  return NULL;
+}
+
+/* Reads the PlayerNames property of one playerctld interface. Returns a new
+   string array variant, or NULL if the property is not there. */
+static GVariant *
+playerctld_get_player_names_property (GDBusConnection *connection,
+                                      const gchar *interface_name)
+{
+  GError *tmp_error = NULL;
+  GVariant *property = g_dbus_connection_call_sync (
+      connection, PLAYERCTLD_BUS_NAME, MPRIS_PATH,
+      "org.freedesktop.DBus.Properties", "Get",
+      g_variant_new ("(ss)", interface_name, "PlayerNames"),
+      G_VARIANT_TYPE ("(v)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
+  if (tmp_error != NULL)
+    {
+      g_debug ("Could not get player names from %s: %s", interface_name,
+               tmp_error->message);
+      g_clear_error (&tmp_error);
+      return NULL;
+    }
+  GVariant *boxed = g_variant_get_child_value (property, 0);
+  GVariant *value = g_variant_get_variant (boxed);
+  g_variant_unref (boxed);
+  g_variant_unref (property);
+  if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
+    {
+      return value;
+    }
+  g_variant_unref (value);
+  return NULL;
+}
+
+/* Asks playerctld for its player names, which are in order of activity.
+   Returns a new string array variant, or NULL (after a warning). */
+static GVariant *
+playerctld_get_player_names (GDBusConnection *connection)
+{
+  g_debug ("%s", "Playerctld is running. Getting names from there.");
+
+  GVariant *playerctld_reply = NULL;
+  const gchar *interfaces[] = PLAYERCTLD_INTERFACES;
+  // an older playerctld only serves the legacy interface
+  for (gsize j = 0; j < G_N_ELEMENTS (interfaces) && playerctld_reply == NULL;
+       j++)
+    {
+      playerctld_reply
+          = playerctld_get_player_names_property (connection, interfaces[j]);
+    }
+  if (playerctld_reply == NULL)
+    {
+      g_warning ("%s", "Could not get player names from playerctld: "
+                       "PlayerNames property not found");
+    }
+  return playerctld_reply;
+}
+
+/* Appends the MPRIS players of the bus names, keeping their order. */
+static GList *
+append_mpris_player_names (GList *players, const gchar **names, gsize count,
+                           GBusType bus_type)
+{
+  size_t offset = strlen (MPRIS_PREFIX);
+  for (gsize i = 0; i < count; i += 1)
+    {
+      // NOLINTNEXTLINE(bugprone-assignment-in-if-condition): glib macro
+      if (g_str_has_prefix (names[i], MPRIS_PREFIX))
+        {
+          PlayerctlPlayerName *player_name = pctl_player_name_new (
+              names[i] + offset, pctl_bus_type_to_source (bus_type));
+          players = g_list_append (players, player_name);
+        }
+    }
+  return players;
+}
+
 GList *
 pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
 {
@@ -324,36 +431,9 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
   GList *players = NULL;
   gboolean has_playerctld = FALSE;
 
-  /* Plain calls on the connection: a GDBusProxy would queue a cleanup
-     callback on the main context for every call. */
-  GDBusConnection *connection = g_bus_get_sync (bus_type, NULL, &tmp_error);
-
-  if (tmp_error != NULL)
+  GDBusConnection *connection = get_bus_connection (bus_type, err);
+  if (connection == NULL)
     {
-      if (tmp_error->domain == G_IO_ERROR
-          && tmp_error->code == G_IO_ERROR_NOT_FOUND)
-        {
-          // XXX: This means the dbus socket address is not found which may
-          // mean that the bus is not running or the address was set
-          // incorrectly. I think we can pass through here because it is true
-          // that there are no names on the bus that is supposed to be at
-          // this socket path. But we need a better way of dealing with this
-          // case.
-          const gchar *message
-              = "D-Bus socket address not found, unable to list player names";
-          if (bus_type == G_BUS_TYPE_SESSION)
-            {
-              g_warning ("%s", message);
-            }
-          else
-            {
-              g_debug ("%s", message);
-            }
-
-          g_clear_error (&tmp_error);
-          return NULL;
-        }
-      g_propagate_error (err, tmp_error);
       return NULL;
     }
 
@@ -376,55 +456,11 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
 
   // If playerctld is in the names, get the list of players from there
   // because it will be in order of activity
-  for (gsize i = 0; i < reply_count; i += 1)
+  if (g_strv_contains (names, PLAYERCTLD_BUS_NAME))
     {
-      if (g_strcmp0 (names[i], PLAYERCTLD_BUS_NAME) == 0)
+      GVariant *playerctld_reply = playerctld_get_player_names (connection);
+      if (playerctld_reply != NULL)
         {
-          g_debug ("%s", "Playerctld is running. Getting names from there.");
-
-          GVariant *playerctld_reply = NULL;
-          /* XXX: DRY: the pair { PLAYERCTLD_INTERFACE,
-             PLAYERCTLD_INTERFACE_LEGACY } is also declared in playerctl-
-             daemon.c:409; put it in playerctl-common.h. */
-          const gchar *interfaces[]
-              = { PLAYERCTLD_INTERFACE, PLAYERCTLD_INTERFACE_LEGACY };
-          for (gsize j = 0;
-               j < G_N_ELEMENTS (interfaces) && playerctld_reply == NULL; j++)
-            {
-              // an older playerctld only serves the legacy interface
-              GVariant *property = g_dbus_connection_call_sync (
-                  connection, PLAYERCTLD_BUS_NAME, "/org/mpris/MediaPlayer2",
-                  "org.freedesktop.DBus.Properties", "Get",
-                  g_variant_new ("(ss)", interfaces[j], "PlayerNames"),
-                  G_VARIANT_TYPE ("(v)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL,
-                  &tmp_error);
-              if (tmp_error != NULL)
-                {
-                  g_debug ("Could not get player names from %s: %s",
-                           interfaces[j], tmp_error->message);
-                  g_clear_error (&tmp_error);
-                  continue;
-                }
-              GVariant *boxed = g_variant_get_child_value (property, 0);
-              GVariant *value = g_variant_get_variant (boxed);
-              g_variant_unref (boxed);
-              g_variant_unref (property);
-              if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY))
-                {
-                  playerctld_reply = value;
-                }
-              else
-                {
-                  g_variant_unref (value);
-                }
-            }
-          if (playerctld_reply == NULL)
-            {
-              g_warning ("%s", "Could not get player names from playerctld: "
-                               "PlayerNames property not found");
-              break;
-            }
-
           g_free (names);
           g_variant_unref (reply_child);
           g_variant_unref (reply);
@@ -433,22 +469,10 @@ pctl_list_player_names_on_bus (GBusType bus_type, GError **err)
           reply_child = NULL;
           names = g_variant_get_strv (reply, &reply_count);
           has_playerctld = TRUE;
-
-          break;
         }
     }
 
-  size_t offset = strlen (MPRIS_PREFIX);
-  for (gsize i = 0; i < reply_count; i += 1)
-    {
-      // NOLINTNEXTLINE(bugprone-assignment-in-if-condition): glib macro
-      if (g_str_has_prefix (names[i], MPRIS_PREFIX))
-        {
-          PlayerctlPlayerName *player_name = pctl_player_name_new (
-              names[i] + offset, pctl_bus_type_to_source (bus_type));
-          players = g_list_append (players, player_name);
-        }
-    }
+  players = append_mpris_player_names (players, names, reply_count, bus_type);
 
   if (!has_playerctld)
     {

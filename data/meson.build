@@ -14,6 +14,12 @@ configure_file(
   configuration: service_conf
 )
 
+# The D-Bus interface of playerctld, for tools that generate bindings
+install_data(
+  'org._5mdt.playerctld.xml',
+  install_dir: join_paths(datadir, 'dbus-1', 'interfaces'),
+)
+
 if get_option('bash-completions')
 	bash_files = files(
 		'playerctl.bash',

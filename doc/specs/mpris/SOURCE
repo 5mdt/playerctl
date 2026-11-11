@@ -1,0 +1,5 @@
+Document: MPRIS D-Bus Interface Specification (spec/*.xml, COPYING)
+Source:   https://gitlab.freedesktop.org/mpris/mpris-spec/-/tree/84d2ccffdf8f5395f34e1ca2ce4ffeb42f196900/spec
+Revision: 84d2ccffdf8f5395f34e1ca2ce4ffeb42f196900 (2026-02-24, spec version 2.3, unreleased)
+License:  LGPL-2.1-or-later (see COPYING)
+Files are byte-identical to upstream. Update with scripts/vendor-specs.sh.

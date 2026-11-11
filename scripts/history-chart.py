@@ -8,7 +8,9 @@ run's commit, dates above the plot). A stacked area per test category, pattern
 and colour per category. Inside a category the passed tests keep its colour and the others are drawn on top in a
 fixed colour per status (xfailed, skipped, error, failed). The height of the
 stack at each run is that run's line coverage (0-100%), split between the
-categories and statuses by their share of the tests. That split is a rough
+categories and statuses by their share of the tests. A non-passed status that
+occurs is always at least one pixel tall. The legend shows the test counts of
+the last run. That split is a rough
 picture, not a measurement: coverage is not attributable to a category. A test
 run is matched with the coverage run of the same commit (the n-th with the
 n-th).
@@ -70,22 +72,36 @@ def main(tests, coverage, output):
     }
 
     palette = plt.get_cmap('Pastel1').colors + plt.get_cmap('Pastel2').colors
+    fig, ax = plt.subplots(figsize=(10, 5), facecolor=BACKGROUND, dpi=120)
+    ax.set_facecolor(BACKGROUND)
+    # one pixel of height in data units (the y axis spans 0-100)
+    min_h = 100 / ax.bbox.height
     stacks, colors, hatches = [], [], []
     for i, name in enumerate(names):
+        cols = {s: [] for s in STATUSES}
+        for k in runs:
+            count = {
+                s: int(by_run[k][name][s]) if name in by_run[k] else 0
+                for s in STATUSES
+            }
+            vals = {
+                s: by_run[k]['percent'] * count[s] / total[k] for s in STATUSES
+            }
+            # a non-passed status that is present is at least 1 px tall; the
+            # extra height is taken from the passed band of the same category
+            for s in STATUSES:
+                if s != 'passed' and count[s] and vals[s] < min_h:
+                    vals['passed'] = max(
+                        0.0, vals['passed'] - (min_h - vals[s])
+                    )
+                    vals[s] = min_h
+            for s in STATUSES:
+                cols[s].append(vals[s])
         for status, color in STATUSES.items():
-            stacks.append(
-                [
-                    by_run[k]['percent']
-                    * int(by_run[k][name][status] if name in by_run[k] else 0)
-                    / total[k]
-                    for k in runs
-                ]
-            )
+            stacks.append(cols[status])
             colors.append(color or palette[i % len(palette)])
             hatches.append(HATCHES[i % len(HATCHES)])
 
-    fig, ax = plt.subplots(figsize=(10, 5), facecolor=BACKGROUND)
-    ax.set_facecolor(BACKGROUND)
     positions = list(range(len(runs)))
     areas = ax.stackplot(positions, stacks, colors=colors)
     for area, hatch in zip(areas, hatches):
@@ -95,17 +111,25 @@ def main(tests, coverage, output):
     ax.set_ylim(0, 100)
     ax.yaxis.set_major_formatter(PercentFormatter(decimals=0))
     ax.set_title('Line coverage, split by test category and status')
+    last = by_run[runs[-1]]
+
+    def last_count(name):
+        return int(last[name]['total']) if name in last else 0
+
+    def status_count(status):
+        return sum(int(last[n][status]) for n in names if n in last)
+
     categories = [
         Patch(
             facecolor=palette[i % len(palette)],
             edgecolor=(0, 0, 0, 0.4),
             hatch=HATCHES[i % len(HATCHES)],
-            label=name,
+            label=f'{name} ({last_count(name)})',
         )
         for i, name in enumerate(names)
     ]
     others = [
-        Patch(facecolor=color, label=f'{status} (any category)')
+        Patch(facecolor=color, label=f'{status} ({status_count(status)})')
         for status, color in STATUSES.items()
         if color
     ]
@@ -114,6 +138,7 @@ def main(tests, coverage, output):
         loc='center left',
         bbox_to_anchor=(1.01, 0.5),
         frameon=False,
+        title=f'tests in last run ({runs[-1][1]})',
     )
     ax.set_xlim(0, max(len(runs) - 1, 1))
     ax.set_xticks(positions, [c for _, c in runs], rotation=90, fontsize=7)

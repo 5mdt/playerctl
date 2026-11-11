@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  D-Bus interface of playerctld, served on /org/mpris/MediaPlayer2 of the bus name
+  org.mpris.MediaPlayer2.playerctld next to the forwarded MPRIS interfaces.
+
+  This file is the source of truth: playerctl/gen-introspection-header.py turns it
+  into the introspection data of playerctld at build time, and the same interface
+  is also announced as com.github.altdesktop.playerctld, marked deprecated, for
+  clients written against the old name. It is installed to share/dbus-1/interfaces.
+
+  Shift and Unshift cycle the active player and return its bus name. They, and
+  the forwarded MPRIS calls, fail with the error org._5mdt.playerctld.NoActivePlayer
+  (com.github.altdesktop.playerctld.NoActivePlayer for the forwarded MPRIS calls
+  and the legacy interface) when playerctld controls no player.
+
+  PlayerNames lists the bus names of the known players, most recently active first.
+  ActivePlayerChangeBegin and ActivePlayerChangeEnd bracket a change of the active
+  player; Name is the bus name of the player that became active.
+-->
+<node>
+  <interface name="org._5mdt.playerctld">
+    <method name="Shift">
+      <arg name="Player" type="s" direction="out"/>
+    </method>
+    <method name="Unshift">
+      <arg name="Player" type="s" direction="out"/>
+    </method>
+    <property name="PlayerNames" type="as" access="read"/>
+    <signal name="ActivePlayerChangeBegin">
+      <arg name="Name" type="s"/>
+    </signal>
+    <signal name="ActivePlayerChangeEnd">
+      <arg name="Name" type="s"/>
+    </signal>
+  </interface>
+</node>

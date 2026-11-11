@@ -1,6 +1,39 @@
 # Changelog
 
+## Version 2.7.0
+
+Current MPRIS spec differs a bit from vendored in repo, so the main goal of this version - is to became fully spec compliant. The second goal of this release is code deduplication, removal or quirky solutions and general readability improvements
+
+### Specifications
+- The specifications playerctl relies on are vendored in `doc/specs/` with links to their sources: MPRIS (upstream master `84d2ccff`, spec 2.3), the D-Bus specification (0.43) and the MPRIS metadata guidelines. `make vendor-specs` re-downloads them at the pinned revisions
+- `data/mpris-dbus-interface.xml` is generated from the vendored MPRIS files (`scripts/gen-mpris-interface.py`) instead of being hand-trimmed. It gains `Fullscreen`, `CanSetFullscreen`, the optional `GetArtworkFd` method and the `EmitsChangedSignal` annotations, and loses the unused `org.freedesktop.DBus.*` interfaces
+- playerctld: the MPRIS introspection data is generated at build time from `data/mpris-dbus-interface.xml` (`playerctl/gen-introspection-header.py`) instead of being typed by hand, so it cannot drift from the specification. It names the `SetPosition` argument `Position` and carries the `EmitsChangedSignal` and `property.optional` annotations of the specification
+- playerctld: its own D-Bus interface lives in `data/org._5mdt.playerctld.xml`, which is also generated into the introspection data (the deprecated `com.github.altdesktop.playerctld` name is a marked copy) and installed to `share/dbus-1/interfaces`. A missing interface now stops playerctld with a message
+- Tests: the mock players follow the MPRIS specification (they gained the missing required members), and the bus configuration of a test moved to `test/data/`
+- Not done yet: forwarding `Player.GetArtworkFd` (it passes a file descriptor) through playerctld
+
+### Features
+- Template helpers: `json_escape()`, `round()`, `int()`, `replace()`, `join()`, `pad()` and `uri_decode()`; `emoji()` also converts `loop` and `shuffle`; `trunc()` takes an integer length
+- The argument count of a template function is checked once, from a table, before the function runs; the messages are unchanged
+
+### Bugfixes
+- `duration()` of a negative time prints `-0:05` instead of `0:-5`
+- `playerctl --list-all` frees the error and no longer sorts the players before it checks that listing them worked
+- `playerctl` frees the error after `Could not execute command`, `Could not connect to player` and `Connection to player failed`, and the `playerctld` entry it adds to the list of players
+- `--follow`: the callbacks connected to the player signals (`seeked`, `volume`, `metadata`, ...) now have the signature of their signal, so the user data is no longer read from the first signal argument
+- Library: `PlayerctlPlayer` created without a source defaults to `PLAYERCTL_SOURCE_NONE` (the same value as before), and the documentation of `playerctl_player_print_metadata_prop()` describes what it returns
+
+### Maint
+- Code audit follow-up: the review comments (`XXX`) of the C sources are fixed where the fix does not change behaviour, the other ones stay in place for a decision. The output, the exit codes, the D-Bus signals and the public API are unchanged
+- The MPRIS and playerctld interface names, `MPRIS_PATH` and `LENGTH()` are defined once in `playerctl-common.h`; `calloc()`, `free()` and the deprecated `g_slice_*` calls are replaced by `g_new0()`, `g_new()` and `g_free()`, so an allocation failure aborts instead of crashing on a NULL pointer. `PlayerctlPlayerName` is allocated with `g_new()`: code outside the tree must free it with `g_free()`
+- `strcasecmp()` is replaced by `g_ascii_strcasecmp()`, `strtok()` by `g_strsplit()`, and a `g_error_matches()` test replaces the match of an error by its message in `playerctld`
+- Repeated code is shared: the playback status and loop status names, the `Can*` properties, the constructors of `PlayerctlPlayer`, the transport commands, the `--format` output and the table of the signals of `PlayerctlPlayer`, the infix operators of the formatter, the registration of the objects of `playerctld`
+- Long functions are split to stay under the `make lint-complexity` limits: `main()` of `playerctl` and `playerctld`, `tokenize_expression()` of the formatter, `playercmd_position()`, `name_owner_changed_signal_callback()`, `pctl_list_player_names_on_bus()` and `playerctl_player_class_init()`
+- `pctl_player_name_compare()` takes `const` pointers
+
 ## Version 2.6.0
+
+This release aims to greenify all existing tests and fix crashes covered with them. No new features or significant logic changes are included
 
 ### Bugfixes
 - Library: `print_metadata_prop` returns an object path such as `mpris:trackid` as plain text (`/track/1`), not quoted (`'/track/1'`)

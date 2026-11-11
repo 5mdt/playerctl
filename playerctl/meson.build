@@ -23,7 +23,10 @@ headers = [
 playerctl_sources = [
   'playerctl-player-name.c',
   'playerctl-formatter.c',
+  'playerctl-formatter-parser.c',
+  'playerctl-formatter-helpers.c',
   'playerctl-player.c',
+  'playerctl-player-commands.c',
   'playerctl-common.c',
   'playerctl-player-manager.c',
   playerctl_generated,
@@ -74,15 +77,54 @@ playerctl_shared_link = declare_dependency(
 
 playerctl_executable = executable(
   'playerctl',
-  'playerctl-cli.c', enums,
+  'playerctl-cli.c',
+  'playerctl-cli-util.c',
+  enums,
   dependencies: playerctl_shared_link,
   include_directories: configuration_inc,
   install: true,
 )
 
+# The introspection data playerctld announces is generated from the interface
+# XML files in data/, so the code and the specifications cannot drift apart.
+# MPRIS: playerctld does not forward methods that pass file descriptors, so
+# GetArtworkFd is left out. Its own interface is also announced under the
+# deprecated name of earlier versions.
+gen_introspection = files('gen-introspection-header.py')
+python = find_program('python3')
+daemon_introspection = [
+  custom_target(
+    'playerctl-daemon-introspection',
+    input: files('../data/mpris-dbus-interface.xml'),
+    output: 'playerctl-daemon-introspection.h',
+    command: [
+      python, gen_introspection, '@INPUT@', '@OUTPUT@',
+      '--variable', 'mpris_introspection_xml',
+      '--exclude', 'org.mpris.MediaPlayer2.Player.GetArtworkFd',
+    ],
+    depend_files: gen_introspection,
+  ),
+  custom_target(
+    'playerctl-daemon-playerctld-introspection',
+    input: files('../data/org._5mdt.playerctld.xml'),
+    output: 'playerctl-daemon-playerctld-introspection.h',
+    command: [
+      python, gen_introspection, '@INPUT@', '@OUTPUT@',
+      '--variable', 'playerctld_introspection_xml',
+      '--deprecated-alias',
+      'org._5mdt.playerctld=com.github.altdesktop.playerctld',
+    ],
+    depend_files: gen_introspection,
+  ),
+]
+
 playerctld_executable = executable(
   'playerctld',
-  'playerctl-daemon.c', enums,
+  'playerctl-daemon.c',
+  'playerctl-daemon-player.c',
+  'playerctl-daemon-context.c',
+  'playerctl-daemon-bus.c',
+  enums, daemon_introspection,
   dependencies: deps,
   include_directories: configuration_inc,
   install: true,
@@ -112,6 +154,7 @@ if get_option('introspection')
       'playerctl-player-manager.c',
       'playerctl-player-manager.h',
       'playerctl-player.c',
+      'playerctl-player-commands.c',
       'playerctl-player.h',
     ],
     extra_args : [ '-DPLAYERCTL_COMPILATION' ],

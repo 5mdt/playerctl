@@ -302,6 +302,10 @@ class MprisRoot(ServiceInterface):
         self.quit_called = True
 
     @dbus_property(access=PropertyAccess.READ)
+    def CanQuit(self) -> 'b':
+        return False
+
+    @dbus_property(access=PropertyAccess.READ)
     def CanRaise(self) -> 'b':
         return False
 
@@ -331,6 +335,18 @@ class MprisTrackList(ServiceInterface):
         self.go_to_called_with = None
 
     @method()
+    def GetTracksMetadata(self, track_ids: 'ao') -> 'aa{sv}':
+        return [{} for _ in track_ids]
+
+    @method()
+    def AddTrack(self, uri: 's', after_track: 'o', set_as_current: 'b'):
+        pass
+
+    @method()
+    def RemoveTrack(self, track_id: 'o'):
+        pass
+
+    @method()
     def GoTo(self, track_id: 'o'):
         self.go_to_called_with = track_id
 
@@ -343,8 +359,20 @@ class MprisTrackList(ServiceInterface):
         return False
 
     @signal()
+    def TrackListReplaced(self) -> 'aoo':
+        return [self.tracks, '/track/1']
+
+    @signal()
     def TrackAdded(self) -> 'a{sv}o':
         return [{}, '/track/1']
+
+    @signal()
+    def TrackRemoved(self) -> 'o':
+        return '/track/1'
+
+    @signal()
+    def TrackMetadataChanged(self) -> 'oa{sv}':
+        return ['/track/1', {}]
 
 
 class MprisPlaylists(ServiceInterface):
@@ -358,6 +386,12 @@ class MprisPlaylists(ServiceInterface):
     @method()
     def ActivatePlaylist(self, playlist_id: 'o'):
         self.activate_playlist_called_with = playlist_id
+
+    @method()
+    def GetPlaylists(
+        self, index: 'u', max_count: 'u', order: 's', reverse_order: 'b'
+    ) -> 'a(oss)':
+        return []
 
     @dbus_property(access=PropertyAccess.READ)
     def PlaylistCount(self) -> 'u':
@@ -659,6 +693,14 @@ class PlayerctldInterface(ServiceInterface):
     @dbus_property(access=PropertyAccess.READ)
     def PlayerNames(self) -> 'as':
         return self.player_names
+
+    @signal()
+    def ActivePlayerChangeBegin(self) -> 's':
+        return 'org.mpris.MediaPlayer2.player1'
+
+    @signal()
+    def ActivePlayerChangeEnd(self) -> 's':
+        return 'org.mpris.MediaPlayer2.player1'
 
     async def disconnect(self):
         self.bus.disconnect()

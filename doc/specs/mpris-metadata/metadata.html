@@ -1,0 +1,322 @@
+<!-- Source: https://www.freedesktop.org/wiki/Specifications/mpris-spec/metadata/ -->
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+ "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>metadata</title>
+
+<link rel="stylesheet" href="../../../style.css" type="text/css" />
+<link rel="stylesheet" href="../../../xorg.css" type="text/css" />
+
+<link rel="stylesheet" href="../../../local.css" type="text/css" />
+
+
+<link rel="alternate" type="application/x-wiki" title="Edit this page" href="//secure.freedesktop.org/write/www/ikiwiki.cgi?do=edit&amp;page=Specifications%2Fmpris-spec%2Fmetadata" />
+
+
+
+
+
+</head>
+<body>
+
+<div class="page">
+<div class="pageheader">
+<div class="header">
+<span class="logo"><img src="../../../logo.png" /></span>
+
+
+<form method="get" action="https://www.google.com/search" id="searchform">
+ <div>
+  <input name="sitesearch" value="https://www.freedesktop.org/wiki/" type="hidden" />
+  <input name="q" value="" id="searchbox" size="16" maxlength="255" type="text"
+    placeholder="search" />
+ </div>
+</form>
+
+
+<span class="headerpath">
+<span class="parentlinks">
+
+<a href="../../../">www</a>/ 
+
+<a href="../../">Specifications</a>/ 
+
+<a href="../">mpris-spec</a>/ 
+
+</span>
+<span class="title">
+metadata
+
+</span>
+</span>
+</div>
+
+
+<span class="actions">
+<ul>
+
+<li><a href="//secure.freedesktop.org/write/www/ikiwiki.cgi?do=edit&amp;page=Specifications%2Fmpris-spec%2Fmetadata" rel="nofollow">Edit</a></li>
+
+
+
+<li><a href="https://cgit.freedesktop.org/wiki/www/log/Specifications/mpris-spec/metadata.mdwn">Page History</a></li>
+
+
+<li><a href="https://cgit.freedesktop.org/wiki/www/">Repo Info</a></li>
+
+
+
+
+</ul>
+</span>
+
+
+
+
+
+
+</div>
+
+
+
+<div id="pagebody">
+
+<div id="content">
+<h1 id="mprisv2metadataguidelines"><a name="index1h1"></a>MPRIS v2 metadata guidelines</h1>
+
+<p>It is recommended that xesam metadata fields (prefixed by "xesam:") are used wherever possible.  This allows for natural extension of the specification in a standard way.</p>
+
+<p>There are also a few MPRIS-specific fields that are intended for interaction with other methods in the specification.  These are prefixed with "mpris:".</p>
+
+<p>Any metadata fields that are not part of a xesam ontology or defined in this document should be prefixed with a different tag, such as "totem:" or "kde:".</p>
+
+<div class="toc">
+	<ol>
+		<li class="L2"><a href="#types">Types</a>
+		<ol>
+			<li class="L3"><a href="#listofstrings">List of Strings</a>
+			</li>
+			<li class="L3"><a href="#datetime">Date/Time</a>
+			</li>
+			<li class="L3"><a href="#uri">URI</a>
+			</li>
+		</ol>
+		</li>
+		<li class="L2"><a href="#fields">Fields</a>
+		<ol>
+			<li class="L3"><a href="#mpris-specific">MPRIS-specific</a>
+			<ol>
+				<li class="L4"><a href="#mpris:trackid">mpris:trackid</a>
+				</li>
+				<li class="L4"><a href="#mpris:length">mpris:length</a>
+				</li>
+				<li class="L4"><a href="#mpris:arturl">mpris:artUrl</a>
+				</li>
+			</ol>
+			</li>
+			<li class="L3"><a href="#commonxesamproperties">Common Xesam properties</a>
+			<ol>
+				<li class="L4"><a href="#xesam:album">xesam:album</a>
+				</li>
+				<li class="L4"><a href="#xesam:albumartist">xesam:albumArtist</a>
+				</li>
+				<li class="L4"><a href="#xesam:artist">xesam:artist</a>
+				</li>
+				<li class="L4"><a href="#xesam:astext">xesam:asText</a>
+				</li>
+				<li class="L4"><a href="#xesam:audiobpm">xesam:audioBPM</a>
+				</li>
+				<li class="L4"><a href="#xesam:autorating">xesam:autoRating</a>
+				</li>
+				<li class="L4"><a href="#xesam:comment">xesam:comment</a>
+				</li>
+				<li class="L4"><a href="#xesam:composer">xesam:composer</a>
+				</li>
+				<li class="L4"><a href="#xesam:contentcreated">xesam:contentCreated</a>
+				</li>
+				<li class="L4"><a href="#xesam:discnumber">xesam:discNumber</a>
+				</li>
+				<li class="L4"><a href="#xesam:firstused">xesam:firstUsed</a>
+				</li>
+				<li class="L4"><a href="#xesam:genre">xesam:genre</a>
+				</li>
+				<li class="L4"><a href="#xesam:lastused">xesam:lastUsed</a>
+				</li>
+				<li class="L4"><a href="#xesam:lyricist">xesam:lyricist</a>
+				</li>
+				<li class="L4"><a href="#xesam:title">xesam:title</a>
+				</li>
+				<li class="L4"><a href="#xesam:tracknumber">xesam:trackNumber</a>
+				</li>
+				<li class="L4"><a href="#xesam:url">xesam:url</a>
+				</li>
+				<li class="L4"><a href="#xesam:usecount">xesam:useCount</a>
+				</li>
+				<li class="L4"><a href="#xesam:userrating">xesam:userRating</a>
+				</li>
+			</ol>
+			</li>
+		</ol>
+		</li>
+	</ol>
+</div>
+
+<h2 id="types"><a name="index1h2"></a>Types</h2>
+
+<p><a name="list-of-strings"></a></p>
+
+<h3 id="listofstrings"><a name="index1h3"></a>List of Strings</h3>
+
+<p>Note that some types that you might expect to be strings are, in fact, "lists of strings".  These should be sent using the "as" D-Bus type (array of string).</p>
+
+<p><a name="date-time"></a></p>
+
+<h3 id="datetime"><a name="index2h3"></a>Date/Time</h3>
+
+<p>Date/time fields should be sent as strings in ISO 8601 extended format.  If the timezone is known (eg: for xesam:lastPlayed), the internet profile format of ISO 8601, as specified in <a href="http://www.apps.ietf.org/rfc/rfc3339.html#sec-5.6">RFC 3339</a>, should be used.</p>
+
+<p>For example: "2007-04-29T13:56+01:00" for 29th April 2007, four minutes to 2pm, in a time zone 1 hour ahead of UTC.</p>
+
+<p><a name="uri"></a></p>
+
+<h3 id="uri"><a name="index3h3"></a>URI</h3>
+
+<p>URIs should be sent as (UTF-8) strings.  Local files should use the "file://" schema.</p>
+
+<h2 id="fields"><a name="index2h2"></a>Fields</h2>
+
+<h3 id="mpris-specific"><a name="index4h3"></a>MPRIS-specific</h3>
+
+<h4 id="mpris:trackid"><a name="index1h4"></a>mpris:trackid</h4>
+
+<p>D-Bus path: A unique identity for this track within the context of an MPRIS object (eg: tracklist).</p>
+
+<h4 id="mpris:length"><a name="index2h4"></a>mpris:length</h4>
+
+<p>64-bit integer: The duration of the track in microseconds.</p>
+
+<h4 id="mpris:arturl"><a name="index3h4"></a>mpris:artUrl</h4>
+
+<p><a href="#uri">URI</a>: The location of an image representing the track or album. Clients should not assume this will continue to exist when the media player stops giving out the URL.</p>
+
+<h3 id="commonxesamproperties"><a name="index5h3"></a>Common Xesam properties</h3>
+
+<p>Common audio properties from the Xesam specification:</p>
+
+<h4 id="xesam:album"><a name="index4h4"></a>xesam:album</h4>
+
+<p>String: The album name.</p>
+
+<h4 id="xesam:albumartist"><a name="index5h4"></a>xesam:albumArtist</h4>
+
+<p><a href="#list-of-strings">List of Strings</a>: The album artist(s).</p>
+
+<h4 id="xesam:artist"><a name="index6h4"></a>xesam:artist</h4>
+
+<p><a href="#list-of-strings">List of Strings</a>: The track artist(s).</p>
+
+<h4 id="xesam:astext"><a name="index7h4"></a>xesam:asText</h4>
+
+<p>String: The track lyrics.</p>
+
+<h4 id="xesam:audiobpm"><a name="index8h4"></a>xesam:audioBPM</h4>
+
+<p>Integer: The speed of the music, in beats per minute.</p>
+
+<h4 id="xesam:autorating"><a name="index9h4"></a>xesam:autoRating</h4>
+
+<p>Float: An automatically-generated rating, based on things such as how often it has been played.  This should be in the range 0.0 to 1.0.</p>
+
+<h4 id="xesam:comment"><a name="index10h4"></a>xesam:comment</h4>
+
+<p><a href="#list-of-strings">List of Strings</a>: A (list of) freeform comment(s).</p>
+
+<h4 id="xesam:composer"><a name="index11h4"></a>xesam:composer</h4>
+
+<p><a href="#list-of-strings">List of Strings</a>: The composer(s) of the track.</p>
+
+<h4 id="xesam:contentcreated"><a name="index12h4"></a>xesam:contentCreated</h4>
+
+<p><a href="#date-time">Date/Time</a>: When the track was created.  Usually only the year component will be useful.</p>
+
+<h4 id="xesam:discnumber"><a name="index13h4"></a>xesam:discNumber</h4>
+
+<p>Integer: The disc number on the album that this track is from.</p>
+
+<h4 id="xesam:firstused"><a name="index14h4"></a>xesam:firstUsed</h4>
+
+<p><a href="#date-time">Date/Time</a>: When the track was first played.</p>
+
+<h4 id="xesam:genre"><a name="index15h4"></a>xesam:genre</h4>
+
+<p><a href="#list-of-strings">List of Strings</a>: The genre(s) of the track.</p>
+
+<h4 id="xesam:lastused"><a name="index16h4"></a>xesam:lastUsed</h4>
+
+<p><a href="#date-time">Date/Time</a>: When the track was last played.</p>
+
+<h4 id="xesam:lyricist"><a name="index17h4"></a>xesam:lyricist</h4>
+
+<p><a href="#list-of-strings">List of Strings</a>: The lyricist(s) of the track.</p>
+
+<h4 id="xesam:title"><a name="index18h4"></a>xesam:title</h4>
+
+<p>String: The track title.</p>
+
+<h4 id="xesam:tracknumber"><a name="index19h4"></a>xesam:trackNumber</h4>
+
+<p>Integer: The track number on the album disc.</p>
+
+<h4 id="xesam:url"><a name="index20h4"></a>xesam:url</h4>
+
+<p><a href="#uri">URI</a>: The location of the media file.</p>
+
+<h4 id="xesam:usecount"><a name="index21h4"></a>xesam:useCount</h4>
+
+<p>Integer: The number of times the track has been played.</p>
+
+<h4 id="xesam:userrating"><a name="index22h4"></a>xesam:userRating</h4>
+
+<p>Float: A user-specified rating.  This should be in the range 0.0 to 1.0.</p>
+
+</div>
+
+
+
+
+
+</div>
+
+<div id="footer" class="pagefooter">
+
+<div id="pageinfo">
+
+
+
+
+
+
+
+
+
+
+
+<div class="pagedate">
+Last edited <span class="date">Fri May  7 01:22:37 2021</span>
+<!-- Created <span class="date">Wed Sep 18 20:40:45 2013</span> -->
+</div>
+
+</div>
+
+
+<!-- from www -->
+</div>
+
+</div>
+
+</body>
+</html>
