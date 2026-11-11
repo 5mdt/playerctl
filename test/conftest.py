@@ -1,9 +1,40 @@
 import asyncio
+import os
+import subprocess
 
 import pytest
 
 from .helpers.mpris import setup_mpris
 from .helpers.playerctl import PlayerctlCli, stop_all
+
+
+@pytest.fixture(scope='session', autouse=True)
+def private_system_bus():
+    '''A system bus of this test process only.
+
+    The tests run in parallel (pytest-xdist), and players on the one system bus
+    of the machine would show up in every worker's player lists. Subprocesses
+    and `BusType.SYSTEM` connections inherit the address from the environment.
+    '''
+    proc = subprocess.Popen(
+        ['dbus-daemon', '--session', '--nofork', '--print-address=1'],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    address = proc.stdout.readline().strip()
+    assert address
+    previous = os.environ.get('DBUS_SYSTEM_BUS_ADDRESS')
+    os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = address
+
+    yield address
+
+    if previous is None:
+        os.environ.pop('DBUS_SYSTEM_BUS_ADDRESS', None)
+    else:
+        os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = previous
+    proc.terminate()
+    proc.wait()
+    proc.stdout.close()
 
 
 @pytest.fixture(autouse=True)

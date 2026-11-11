@@ -252,7 +252,7 @@ test-image: $(TEST_IMAGE_STAMP) ## build the image the tests run in (only when i
 	@$(CONTAINER_ENGINE) image inspect $(TEST_IMAGE) >/dev/null 2>&1 || { rm -f $(TEST_IMAGE_STAMP); $(MAKE) $(TEST_IMAGE_STAMP); }
 
 # run a script in the test image with the repo mounted at /app and $(1) as /out
-test-run = mkdir -p $(1) && $(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/app:Z" -v "$(CURDIR)/$(1):/out:Z" -e GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null) -e RECORD_HISTORY=$(RECORD_HISTORY) $(TEST_IMAGE) bash scripts/$(2)
+test-run = mkdir -p $(1) && $(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/app:Z" -v "$(CURDIR)/$(1):/out:Z" -e GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null) -e RECORD_HISTORY=$(RECORD_HISTORY) -e PYTEST_WORKERS $(TEST_IMAGE) bash scripts/$(2)
 
 test-container: test-image ## run the C unit tests and the pytest suite in the test image and print a per-category outcome table; reports in build/test-report
 	rm -f build/test-report/*.xml build/test-report/summary.*

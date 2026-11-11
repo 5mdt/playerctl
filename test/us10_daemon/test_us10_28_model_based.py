@@ -206,6 +206,7 @@ async def test_announced_properties_equal_those_of_the_active_player(
     await collector.close()
 
 
+@pytest.mark.serial
 async def test_memory_stays_flat_over_a_long_shift_storm(
     bus_address, playerctld, daemon_bus, mpris_factory
 ):

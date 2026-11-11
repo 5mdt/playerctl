@@ -3,6 +3,7 @@ recent property change the active one."""
 
 from asyncio import Queue
 
+import pytest
 from dbus_next import Message, MessageType, NameFlag, RequestNameReply
 from dbus_next.aio import MessageBus
 
@@ -122,6 +123,7 @@ async def test_position_change_does_not_make_player_active(
     ]
 
 
+@pytest.mark.serial
 async def test_seeked_from_inactive_player_makes_it_active(
     bus_address, playerctld, daemon_bus, mpris_factory
 ):

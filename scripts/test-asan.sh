@@ -13,6 +13,8 @@ export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:print_summary=1:log_path=/ou
 export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1:log_path=/out/ubsan"
 export LSAN_OPTIONS="suppressions=$PWD/test/data/lsan.supp"
 export G_SLICE=always-malloc
+# the instrumented binaries are slower: fewer parallel workers keep the timing sensitive tests stable
+export PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 status=0
 bash scripts/test-report.sh "$asan" --ignore=test/us11_library "$@" || status=1
 echo "sanitizer reports: $(find /out -name 'asan.*' -o -name 'ubsan.*' | wc -l) file(s) in build/asan"

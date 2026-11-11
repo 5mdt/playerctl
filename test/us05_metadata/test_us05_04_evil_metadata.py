@@ -87,6 +87,7 @@ async def test_megabyte_value_in_format(playerctl, mpris_factory):
     assert len(result.stdout) < 20
 
 
+@pytest.mark.serial
 @pytest.mark.parametrize('count', [1000, 1500, 5000])
 async def test_many_keys(count, playerctl, mpris_factory):
     extra = {f'xesam__k{i}': Variant('s', f'v{i}') for i in range(count)}

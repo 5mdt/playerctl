@@ -5,14 +5,15 @@
 #   . scripts/test-build.sh
 #   test_build DIR [meson setup options]
 #
-# Configures DIR (once; the options only matter then), builds it incrementally
+# Configures DIR (once; the options only matter then; the API docs are not built:
+# the tests do not need them and gtk-doc cannot run an ASAN build), builds it incrementally
 # and installs it into the container's /usr, so D-Bus activation finds
 # playerctld. The image holds no build, DIR lives in the mounted repo (build/test/*)
 # and survives between runs. PATH and the library paths point to DIR as well.
 test_build() {
 	local dir=$1
 	shift
-	[ -f "$dir/build.ninja" ] || meson setup --prefix=/usr "$dir" "$@" >/dev/null || return 1
+	[ -f "$dir/build.ninja" ] || meson setup --prefix=/usr -Dgtk-doc=false "$dir" "$@" >/dev/null || return 1
 	ninja -C "$dir" >/dev/null || return 1
 	ninja -C "$dir" install >/dev/null || return 1
 	export PATH="$PWD/$dir/playerctl:$PATH"

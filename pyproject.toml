@@ -15,6 +15,7 @@ dev = [
     "pytest",
     "pytest-timeout",
     "pytest-asyncio",
+    "pytest-xdist",
     "ruff",
 ]
 
@@ -40,6 +41,9 @@ gi = [
 
 [tool.pytest.ini_options]
 timeout = 5
+markers = [
+    "serial: measures memory or is timing sensitive, so it runs alone after the parallel pass (see scripts/test-report.sh)",
+]
 asyncio_mode = "auto"
 
 [tool.ruff]

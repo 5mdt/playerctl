@@ -35,7 +35,7 @@ HATCHES = ['', '/', '\\', '|', '-', '+', 'x']
 # category, the others are bright so that they stand out
 STATUSES = {
     'passed': None,
-    'xfailed': '#ffd800',
+    'xfailed': '#c68df8',
     'skipped': '#1e90ff',
     'error': '#ff7a00',
     'failed': '#ff1a1a',

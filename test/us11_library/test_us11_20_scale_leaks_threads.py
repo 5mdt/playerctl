@@ -25,6 +25,7 @@ LEAKS = {
 }
 
 
+@pytest.mark.serial
 @pytest.mark.parametrize('case', LEAKS.values(), ids=LEAKS.keys())
 async def test_creating_and_destroying_does_not_leak(
     case, gi_run, mpris_factory
@@ -77,6 +78,7 @@ async def test_creating_and_destroying_does_not_leak(
     assert int(result.stdout) < LEAK_LIMIT_KB, result.stdout
 
 
+@pytest.mark.serial
 async def test_many_player_name_copies_do_not_leak(gi_run, mpris_factory):
     await mpris_factory('lib')
 
@@ -94,6 +96,7 @@ async def test_many_player_name_copies_do_not_leak(gi_run, mpris_factory):
     assert int(result.stdout) < LEAK_LIMIT_KB
 
 
+@pytest.mark.serial
 async def test_signal_handlers_do_not_pile_up_per_property_change(
     gi_start, mpris_factory
 ):
