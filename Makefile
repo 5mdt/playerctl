@@ -1,4 +1,4 @@
-.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates vendor-specs help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test coverage all pre-commit \
+.PHONY: version tag tag-rc release manifests manifests-sync manifests-check package-slug contributors contributors-check contributors-duplicates vendor-specs help dev-image build docs test test-local test-container test-c test-asan test-history-chart test-badge test-history-backfill docker-test test-image coverage all pre-commit \
 	dist dist-check package packages package-lint packages-lint package-test packages-test release-assets \
 	format format-py format-c format-yaml format-md \
 	format-check format-check-py format-check-c format-check-yaml format-check-md \
@@ -237,32 +237,38 @@ RECORD_HISTORY ?=
 TEST_HISTORY ?= test/test_history.csv
 COVERAGE_HISTORY ?= test/coverage_history.csv
 restore = $(if $(RECORD_HISTORY),$(foreach f,$(1),git checkout HEAD -- $(f) 2>/dev/null || rm -f $(f);))
-# run a script in the test image with test/ and scripts/ mounted and $(1) as /out
-test-run = mkdir -p $(1) && $(CONTAINER_ENGINE) run --rm -v "$(CURDIR)/test:/app/test:Z" -v "$(CURDIR)/scripts:/app/scripts:Z" -v "$(CURDIR)/$(1):/out:Z" -e GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null) -e RECORD_HISTORY=$(RECORD_HISTORY) playerctl-test bash scripts/$(2)
-
-test-container: ## run the C unit tests and the pytest suite in the test image and print a per-category outcome table; reports in build/test-report
+# The test image (Dockerfile) holds only the toolchain and the Python environment:
+# it is built once, and again only when Dockerfile, pyproject.toml, uv.lock or the
+# dbus conf change (or the image is gone). The repo is mounted at /app and
+# playerctl is built in it, incrementally, in build/test/* (see scripts/test-build.sh).
+TEST_IMAGE = playerctl-test
+TEST_IMAGE_STAMP = build/.test-image.stamp
+$(TEST_IMAGE_STAMP): Dockerfile pyproject.toml uv.lock test/data/dbus-system.conf
 	$(call require,$(CONTAINER_ENGINE))
-	$(CONTAINER_ENGINE) build -t playerctl-test .
+	$(CONTAINER_ENGINE) build -q -t $(TEST_IMAGE) .
+	@mkdir -p $(dir $@) && touch $@
+
+test-image: $(TEST_IMAGE_STAMP) ## build the image the tests run in (only when its inputs changed or it is missing)
+	@$(CONTAINER_ENGINE) image inspect $(TEST_IMAGE) >/dev/null 2>&1 || { rm -f $(TEST_IMAGE_STAMP); $(MAKE) $(TEST_IMAGE_STAMP); }
+
+# run a script in the test image with the repo mounted at /app and $(1) as /out
+test-run = mkdir -p $(1) && $(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/app:Z" -v "$(CURDIR)/$(1):/out:Z" -e GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null) -e RECORD_HISTORY=$(RECORD_HISTORY) $(TEST_IMAGE) bash scripts/$(2)
+
+test-container: test-image ## run the C unit tests and the pytest suite in the test image and print a per-category outcome table; reports in build/test-report
 	rm -f build/test-report/*.xml build/test-report/summary.*
 	$(call restore,$(TEST_HISTORY))
-	$(call test-run,build/test-report,test-report.sh build)
+	$(call test-run,build/test-report,test-report.sh build/test/stock)
 
-test-c: ## build and run the C unit tests (test/c) with meson test in the test image
-	$(call require,$(CONTAINER_ENGINE))
-	$(CONTAINER_ENGINE) build -t playerctl-test .
-	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/src:Z" -w /src playerctl-test bash -c "meson setup /tmp/build-c -Dtests=true >/dev/null && ninja -C /tmp/build-c >/dev/null && meson test -C /tmp/build-c --print-errorlogs"
+test-c: test-image ## build and run the C unit tests (test/c) with meson test in the test image
+	$(CONTAINER_ENGINE) run --rm -v "$(CURDIR):/app:Z" -w /app $(TEST_IMAGE) bash -c "([ -f build/test/c/build.ninja ] || meson setup build/test/c -Dtests=true >/dev/null) && ninja -C build/test/c >/dev/null && meson test -C build/test/c --print-errorlogs"
 
-test-asan: ## run the C unit tests and the CLI/daemon pytest suites against an AddressSanitizer + UBSan build in the test image; reports in build/asan
-	$(call require,$(CONTAINER_ENGINE))
-	$(CONTAINER_ENGINE) build -t playerctl-test .
+test-asan: test-image ## run the C unit tests and the CLI/daemon pytest suites against an AddressSanitizer + UBSan build in the test image; reports in build/asan
 	rm -rf build/asan
 	$(call test-run,build/asan,test-asan.sh)
 
 test: test-container ## run the C and pytest tests in a container with a per-category outcome table (alias for test-container)
 
-coverage: ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage; RECORD_HISTORY=1 also appends to the test and coverage history CSVs
-	$(call require,$(CONTAINER_ENGINE))
-	$(CONTAINER_ENGINE) build -t playerctl-test .
+coverage: test-image ## run the tests against a gcov-instrumented build in the test image; reports in build/coverage; RECORD_HISTORY=1 also appends to the test and coverage history CSVs
 	$(call restore,$(TEST_HISTORY) $(COVERAGE_HISTORY))
 	$(call test-run,build/coverage,coverage.sh)
 
@@ -276,9 +282,7 @@ test-badge: $(DEV_DEPS) ## write a summary badge (total tests grey, failed and e
 	$(RUN) python3 scripts/test-badge.py $(TEST_HISTORY) $(BADGE)
 
 N ?= 8
-test-history-backfill: ## measure the last N=8 first-parent commits one by one in the test image (snapshots in build/backfill) and rewrite the test and coverage history CSVs with those runs
-	$(call require,$(CONTAINER_ENGINE))
-	$(CONTAINER_ENGINE) build -t playerctl-test .
+test-history-backfill: test-image ## measure the last N=8 first-parent commits one by one in the test image (snapshots in build/backfill) and rewrite the test and coverage history CSVs with those runs
 	CONTAINER_ENGINE=$(CONTAINER_ENGINE) bash scripts/history-backfill.sh $(N)
 
 # docker-test kept as an alias for test-container

@@ -1,4 +1,4 @@
-/build
-**/__pycache__
-**/.pytest_cache
-.venv
+*
+!pyproject.toml
+!uv.lock
+!test/data/dbus-system.conf
