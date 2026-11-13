@@ -110,6 +110,8 @@ GVariant *context_player_names_to_gvariant (struct PlayerctldContext *ctx);
 gboolean context_emit_optional_properties (struct PlayerctldContext *ctx,
                                            struct Player *player,
                                            GError **error);
+void context_announce_player (struct PlayerctldContext *ctx,
+                              struct Player *player);
 void context_emit_active_player_changed (struct PlayerctldContext *ctx,
                                          GError **error);
 struct Player *context_find_player (struct PlayerctldContext *ctx,

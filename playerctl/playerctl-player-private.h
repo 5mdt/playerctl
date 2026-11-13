@@ -23,5 +23,7 @@
 #include "playerctl-player.h"
 
 char *pctl_player_get_instance (PlayerctlPlayer *player);
+PlayerctlPlayer *pctl_player_new_from_name_lazy (PlayerctlPlayerName *name,
+                                                 GError **err);
 
 #endif /* __PLAYERCTL_PLAYER_PRIVATE_H__ */

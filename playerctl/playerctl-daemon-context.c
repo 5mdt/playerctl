@@ -299,30 +299,43 @@ context_unrotate_queue (struct PlayerctldContext *ctx)
 }
 
 /**
- * Returns the active player; when it is not PREVIOUS, update its position and
- * announce it
+ * Refresh the position of PLAYER (reset to 0 when that fails) and announce it
+ * as the active player
+ */
+void
+context_announce_player (struct PlayerctldContext *ctx, struct Player *player)
+{
+  GError *error = NULL;
+  if (player != NULL)
+    {
+      player_update_position_sync (player, ctx, &error);
+      if (error != NULL)
+        {
+          player->position = 0L;
+          g_warning ("could not update player position for player '%s': %s",
+                     player->well_known, error->message);
+          g_clear_error (&error);
+        }
+    }
+  context_emit_active_player_changed (ctx, &error);
+  if (error != NULL)
+    {
+      g_warning ("could not emit active player change: %s", error->message);
+      g_clear_error (&error);
+    }
+}
+
+/**
+ * Returns the active player; when it is not PREVIOUS, announce it
  */
 static struct Player *
 context_announce_if_changed (struct PlayerctldContext *ctx,
                              struct Player *previous)
 {
-  GError *error = NULL;
   struct Player *current = context_get_active_player (ctx);
   if (current != previous)
     {
-      player_update_position_sync (current, ctx, &error);
-      if (error != NULL)
-        {
-          g_warning ("could not update player position: %s", error->message);
-          g_clear_error (&error);
-        }
-      context_emit_active_player_changed (ctx, &error);
-      if (error != NULL)
-        {
-          g_warning ("could not emit active player change: %s",
-                     error->message);
-          g_clear_error (&error);
-        }
+      context_announce_player (ctx, current);
     }
   return current;
 }
@@ -330,11 +343,6 @@ context_announce_if_changed (struct PlayerctldContext *ctx,
 /**
  * Returns the newly activated player
  */
-/* XXX: DRY: name_appeared(), name_vanished() and
-   player_signal_proxy_callback() repeat the same position update plus emit
-   block; name_vanished() and player_signal_proxy_callback() use different
-   warning texts and a position reset, so they cannot share
-   context_announce_if_changed() without changing the warnings. */
 struct Player *
 context_shift_active_player (struct PlayerctldContext *ctx)
 {

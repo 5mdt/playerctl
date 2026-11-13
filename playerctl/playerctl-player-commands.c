@@ -518,18 +518,13 @@ playerctl_player_get_position (PlayerctlPlayer *self, GError **err)
       return 0;
     }
 
-  GVariant *call_reply = g_dbus_proxy_call_sync (
-      G_DBUS_PROXY (self->priv->proxy), "org.freedesktop.DBus.Properties.Get",
-      g_variant_new ("(ss)", PLAYER_IFACE, "Position"), G_DBUS_CALL_FLAGS_NONE,
-      -1, NULL, &tmp_error);
+  GVariant *call_reply_unboxed
+      = player_properties_get_sync (self, "Position", &tmp_error);
   if (tmp_error)
     {
       g_propagate_error (err, tmp_error);
       return 0;
     }
-
-  GVariant *call_reply_unboxed = properties_get_reply_value (call_reply);
-  g_variant_unref (call_reply);
 
   if (call_reply_unboxed == NULL
       || !g_variant_is_of_type (call_reply_unboxed, G_VARIANT_TYPE_INT64))

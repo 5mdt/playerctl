@@ -54,8 +54,8 @@ async def test_volume_out_of_range_not_applied(arg, playerctl, mpris_factory):
     assert 0.0 <= mpris.volume <= 1.0
 
 
-@pytest.mark.parametrize('arg', ['abc', '+', '-'])
-async def test_volume_invalid_absolute_rejected(arg, playerctl, mpris_factory):
+@pytest.mark.parametrize('arg', ['abc', 'x+', 'one-', '+', '-'])
+async def test_volume_invalid_rejected(arg, playerctl, mpris_factory):
     [mpris] = await mpris_factory('commands')
     mpris.volume = 0.5
 

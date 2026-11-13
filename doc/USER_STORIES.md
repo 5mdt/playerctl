@@ -22,7 +22,7 @@ Personas: **user** (desktop/hotkeys), **bar author** (polybar/waybar scripts), *
 - <a id="us-1-1"></a>[1.1](#us-1-1) As a user, I want `play`, `pause`, `play-pause` and `stop` so I can control playback from a hotkey
   - [test_us01_01_play_pause_stop.py](../test/us01_playback/test_us01_01_play_pause_stop.py)
 - <a id="us-1-2"></a>[1.2](#us-1-2) As a user, I want `next` and `previous` to change track
-  - [test_us01_02_next_previous.py](../test/us01_playback/test_us01_02_next_previous.py)
+  - [test_us01_01_play_pause_stop.py](../test/us01_playback/test_us01_01_play_pause_stop.py) (also covers 1.1)
 - <a id="us-1-3"></a>[1.3](#us-1-3) As a user, I want a player to be skipped when it reports it can't do the action (`CanPlay`, `CanPause`, `CanGoNext`, …)
   - [test_us01_03_skip_when_cannot.py](../test/us01_playback/test_us01_03_skip_when_cannot.py) — each command vs its gating `Can*` (play/pause/stop/play-pause/next/previous); exit 1 + message, `-s`, fallback to capable player, `-a`
 - <a id="us-1-4"></a>[1.4](#us-1-4) As a user, I want `open URI` to open a local file (converted to `file://`) or a remote URL
@@ -56,7 +56,7 @@ Personas: **user** (desktop/hotkeys), **bar author** (polybar/waybar scripts), *
 - <a id="us-3-2"></a>[3.2](#us-3-2) As a user, I want `volume 0.5` to set the level
   - [test_us03_02_set.py](../test/us03_volume/test_us03_02_set.py)
 - <a id="us-3-3"></a>[3.3](#us-3-3) As a user, I want `volume 0.1+` / `0.1-` to change the level relative to the current one
-  - [test_us03_03_adjust_relative.py](../test/us03_volume/test_us03_03_adjust_relative.py) — `N+`/`N-` add/subtract from the current level, repeated adjustments, invalid input exits 1 with "could not parse volume as a number" and leaves the level unchanged, `-a` adjusts every player; **known failure:** no clamping to 0.0-1.0 (CLI sends current+delta as-is)
+  - [test_us03_03_adjust_relative.py](../test/us03_volume/test_us03_03_adjust_relative.py) — `N+`/`N-` add/subtract from the current level, repeated adjustments, `-a` adjusts every player; **known failure:** no clamping to 0.0-1.0 (CLI sends current+delta as-is)
 - <a id="us-3-5"></a>[3.5](#us-3-5) As a scripter, I want `volume` clamped to 0.0..1.0 and any non-number rejected with exit 1 and the volume unchanged
   - [test_us03_05_volume_fuzz.py](../test/us03_volume/test_us03_05_volume_fuzz.py)
 
@@ -177,6 +177,7 @@ Personas: **user** (desktop/hotkeys), **bar author** (polybar/waybar scripts), *
   - [test_us09_03_no_messages.py](../test/us09_diagnostics/test_us09_03_no_messages.py)
 - <a id="us-9-4"></a>[9.4](#us-9-4) As a user, I want `--help`/`--version` (and help when no command is given)
   - [test_us09_04_help_version.py](../test/us09_diagnostics/test_us09_04_help_version.py)
+  - [test_us09_09_help_matches_docs.py](../test/us09_diagnostics/test_us09_09_help_matches_docs.py) — every command in `--help` is in the manpage and doc/usage.md
 - <a id="us-9-5"></a>[9.5](#us-9-5) As a scripter, I want an unknown option or an option missing its value to fail with a message and exit code 1
   - [test_us09_05_invalid_options.py](../test/us09_diagnostics/test_us09_05_invalid_options.py)
 - <a id="us-9-6"></a>[9.6](#us-9-6) As a scripter, I want option abuse (repeats, missing values, `--`, combined flags, `-f`/`-F` with control commands, oversized formats, `-v`/`-h` combos) to end in exit 0 or 1 with a clean message

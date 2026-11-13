@@ -1,12 +1,12 @@
-"""US-1.1: As a user, I want `play`, `pause`, `play-pause` and `stop` so I can
-control playback from a hotkey."""
+"""US-1.1 / US-1.2: As a user, I want `play`, `pause`, `play-pause`, `stop`,
+`next` and `previous` so I can control playback from a hotkey."""
 
 import pytest
 
 from ..helpers.mpris import was_called
 
 
-@pytest.mark.parametrize('command', ['play', 'pause', 'play-pause', 'stop'])
+@pytest.mark.parametrize('command', ['play', 'pause', 'play-pause', 'stop', 'next', 'previous'])
 async def test_command_reaches_player(command, playerctl, mpris_factory):
     [mpris] = await mpris_factory('commands')
 

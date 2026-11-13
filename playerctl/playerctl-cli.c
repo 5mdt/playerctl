@@ -986,9 +986,8 @@ static const GOptionEntry entries[] = {
 static gboolean
 parse_setup_options (int argc, char *argv[], GError **error)
 {
-  /* XXX: DRY: the command help text exists here, in doc/playerctl.1.in and
-     in doc/usage.md. Odd literal splits ("previous " "track") show it was
-     re-wrapped by hand. */
+  /* The command list is also in doc/playerctl.1.in and doc/usage.md;
+     test_us09_09_help_matches_docs.py keeps the three in sync. */
   static const gchar *description
       = "Available Commands:"
         "\n  play                    Command the player to play"
@@ -999,21 +998,16 @@ parse_setup_options (int argc, char *argv[], GError **error)
         "\n  next                    Command the player to skip to the next "
         "track"
         "\n  previous                Command the player to skip to the "
-        "previous "
-        "track"
+        "previous track"
         "\n  position [OFFSET][+/-]  Command the player to go to the position "
-        "or "
-        "seek forward/backward OFFSET in seconds"
+        "or seek forward/backward OFFSET in seconds"
         "\n  volume [LEVEL][+/-]     Print or set the volume to LEVEL from "
-        "0.0 "
-        "to 1.0"
+        "0.0 to 1.0"
         "\n  status                  Get the play status of the player"
         "\n  metadata [KEY...]       Print metadata information for the "
-        "current "
-        "track. If KEY is passed,"
+        "current track. If KEY is passed,"
         "\n                          print only those values. KEY may be "
-        "artist,"
-        "title, album, or any key found in the metadata."
+        "artist, title, album, or any key found in the metadata."
         "\n  open [URI]              Command for the player to open given URI."
         "\n                          URI can be either file path or remote "
         "URL."
@@ -1513,14 +1507,7 @@ connect_player (PlayerctlPlayerName *name,
 {
   if (!follow && player_cmd->lazy)
     {
-      return g_initable_new (
-          PLAYERCTL_TYPE_PLAYER, NULL, error,
-          /* XXX: DRY: builds the player by property name to pass load-
-             properties=FALSE and so bypasses
-             playerctl_player_new_from_name (); the public API
-             has no constructor for it. */
-          "player-instance", name->instance, "source", name->source,
-          "load-properties", FALSE, NULL);
+      return pctl_player_new_from_name_lazy (name, error);
     }
   return playerctl_player_new_from_name (name, error);
 }

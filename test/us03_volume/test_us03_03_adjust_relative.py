@@ -54,20 +54,6 @@ async def test_volume_adjust_stays_within_bounds(
     assert 0.0 <= mpris.volume <= 1.0
 
 
-# XXX: DRY: same body as test_volume_invalid_absolute_rejected in
-# test_us03_02_set.py; merge or share.
-@pytest.mark.parametrize('arg', ['abc', 'x+', 'one-', '+', '-'])
-async def test_volume_adjust_invalid_rejected(arg, playerctl, mpris_factory):
-    [mpris] = await mpris_factory('commands')
-    mpris.volume = 0.5
-
-    result = await playerctl.run(f'-p commands volume -- {arg}')
-
-    assert result.returncode == 1
-    assert 'could not parse volume as a number' in result.stderr.lower()
-    assert mpris.volume == 0.5
-
-
 async def test_volume_adjust_all_players(playerctl, mpris_factory):
     [a, b] = await mpris_factory('a_player', 'b_player')
     a.volume = 0.2

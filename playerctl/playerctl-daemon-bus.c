@@ -442,8 +442,6 @@ static void
 name_appeared (struct PlayerctldContext *ctx, const gchar *name,
                const gchar *new_owner)
 {
-  GError *error = NULL;
-
   g_debug ("player name appeared: unique=%s, well_known=%s", new_owner, name);
   // see if it's already managed
   struct Player *player = context_find_player (ctx, NULL, name);
@@ -454,20 +452,7 @@ name_appeared (struct PlayerctldContext *ctx, const gchar *name,
       if (player != context_get_active_player (ctx))
         {
           context_set_active_player (ctx, player);
-          player_update_position_sync (player, ctx, &error);
-          if (error != NULL)
-            {
-              g_warning ("could not update player position: %s",
-                         error->message);
-              g_clear_error (&error);
-            }
-          context_emit_active_player_changed (ctx, &error);
-          if (error != NULL)
-            {
-              g_warning ("could not emit active player change: %s",
-                         error->message);
-              g_clear_error (&error);
-            }
+          context_announce_player (ctx, player);
         }
       return;
     }
@@ -494,7 +479,6 @@ name_appeared (struct PlayerctldContext *ctx, const gchar *name,
 static void
 name_vanished (struct PlayerctldContext *ctx, const gchar *name)
 {
-  GError *error = NULL;
   struct Player *player = context_find_player (ctx, NULL, name);
   if (player == NULL)
     {
@@ -515,25 +499,7 @@ name_vanished (struct PlayerctldContext *ctx, const gchar *name)
       return;
     }
 
-  struct Player *active_player = context_get_active_player (ctx);
-  if (active_player != NULL)
-    {
-      player_update_position_sync (active_player, ctx, &error);
-      if (error != NULL)
-        {
-          active_player->position = 0L;
-          g_warning ("could not update player position for player '%s': %s",
-                     active_player->well_known, error->message);
-          g_clear_error (&error);
-        }
-    }
-  context_emit_active_player_changed (ctx, &error);
-  if (error != NULL)
-    {
-      g_warning ("could not emit player properties changed signal: %s",
-                 error->message);
-      g_clear_error (&error);
-    }
+  context_announce_player (ctx, context_get_active_player (ctx));
 }
 
 void
@@ -651,20 +617,7 @@ player_signal_proxy_callback (GDBusConnection *connection,
     {
       g_debug ("new active player: %s", player->well_known);
       context_set_active_player (ctx, player);
-      player_update_position_sync (player, ctx, &error);
-      if (error != NULL)
-        {
-          player->position = 0L;
-          g_warning ("could not update player position: %s", error->message);
-          g_clear_error (&error);
-        }
-      context_emit_active_player_changed (ctx, &error);
-      if (error != NULL)
-        {
-          g_warning ("could not emit all properties changed signal: %s",
-                     error->message);
-          g_clear_error (&error);
-        }
+      context_announce_player (ctx, player);
     }
 
   g_dbus_connection_emit_signal (ctx->connection, NULL, object_path,

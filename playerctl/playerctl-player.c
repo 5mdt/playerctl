@@ -130,6 +130,28 @@ properties_get_reply_value (GVariant *reply)
   return value;
 }
 
+// Reads a property of the player interface with a blocking
+// org.freedesktop.DBus.Properties.Get. Returns a new reference to the value.
+// A failed call sets ERROR and returns NULL; a malformed reply returns NULL
+// without an error, so callers pick their own message.
+GVariant *
+player_properties_get_sync (PlayerctlPlayer *self, const gchar *name,
+                            GError **error)
+{
+  GVariant *reply = g_dbus_proxy_call_sync (
+      G_DBUS_PROXY (self->priv->proxy), PROPERTIES_IFACE ".Get",
+      g_variant_new ("(ss)", PLAYER_IFACE, name), G_DBUS_CALL_FLAGS_NONE, -1,
+      NULL, error);
+  if (reply == NULL)
+    {
+      return NULL;
+    }
+
+  GVariant *value = properties_get_reply_value (reply);
+  g_variant_unref (reply);
+  return value;
+}
+
 gchar *
 metadata_get_track_id (GVariant *metadata)
 {
@@ -254,28 +276,14 @@ playerctl_player_properties_changed_callback (
                "interface instead");
       /* FIXME: blocking g_dbus_proxy_call_sync() with no timeout (-1 means
          the 25 s default) inside a signal handler; a hung player freezes
-         the main loop. Also XXX: DRY: this Properties.Get call and its
-         unwrapping is repeated in the other property readers, with string
-         literals although PROPERTIES_IFACE and PLAYER_IFACE exist; make one
-         helper. */
-      GVariant *call_reply = g_dbus_proxy_call_sync (
-          G_DBUS_PROXY (self->priv->proxy),
-          "org.freedesktop.DBus.Properties.Get",
-          g_variant_new ("(ss)", "org.mpris.MediaPlayer2.Player",
-                         "PlaybackStatus"),
-          G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL);
-
-      if (call_reply != NULL)
+         the main loop. */
+      playback_status
+          = player_properties_get_sync (self, "PlaybackStatus", NULL);
+      if (playback_status != NULL
+          && !g_variant_is_of_type (playback_status, G_VARIANT_TYPE_STRING))
         {
-          playback_status = properties_get_reply_value (call_reply);
-          g_variant_unref (call_reply);
-          if (playback_status != NULL
-              && !g_variant_is_of_type (playback_status,
-                                        G_VARIANT_TYPE_STRING))
-            {
-              g_variant_unref (playback_status);
-              playback_status = NULL;
-            }
+          g_variant_unref (playback_status);
+          playback_status = NULL;
         }
     }
 
@@ -404,20 +412,13 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
       // property cache. We have to get the properties directly.
       g_debug ("Spotify does not use the D-Bus property cache, getting "
                "properties directly");
-      GVariant *call_reply = g_dbus_proxy_call_sync (
-          G_DBUS_PROXY (self->priv->proxy),
-          "org.freedesktop.DBus.Properties.Get",
-          g_variant_new ("(ss)", "org.mpris.MediaPlayer2.Player", "Metadata"),
-          G_DBUS_CALL_FLAGS_NONE, -1, NULL, &tmp_error);
+      metadata = player_properties_get_sync (self, "Metadata", &tmp_error);
 
       if (tmp_error != NULL)
         {
           g_propagate_error (err, tmp_error);
           return NULL;
         }
-
-      metadata = properties_get_reply_value (call_reply);
-      g_variant_unref (call_reply);
 
       if (metadata == NULL)
         {
@@ -509,19 +510,13 @@ player_get_capability (PlayerctlPlayer *self, const gchar *name)
   else
     {
       GError *error = NULL;
-      GVariant *reply = g_dbus_proxy_call_sync (
-          proxy, "org.freedesktop.DBus.Properties.Get",
-          g_variant_new ("(ss)", PLAYER_IFACE, name), G_DBUS_CALL_FLAGS_NONE,
-          -1, NULL, &error);
-      if (reply == NULL)
+      value = player_properties_get_sync (self, name, &error);
+      if (error != NULL)
         {
           g_debug ("could not get %s: %s", name, error->message);
           g_error_free (error);
           return FALSE;
         }
-
-      value = properties_get_reply_value (reply);
-      g_variant_unref (reply);
     }
 
   if (value == NULL)
@@ -1375,6 +1370,18 @@ playerctl_player_new_from_name (PlayerctlPlayerName *player_name, GError **err)
   return player_new_with_properties (err, "player-instance",
                                      player_name->instance, "source",
                                      player_name->source, NULL);
+}
+
+// Like playerctl_player_new_from_name() but without loading the properties,
+// for commands that read what they need with Properties.Get.
+PlayerctlPlayer *
+pctl_player_new_from_name_lazy (PlayerctlPlayerName *player_name,
+                                GError **err)
+{
+  return player_new_with_properties (err, "player-instance",
+                                     player_name->instance, "source",
+                                     player_name->source, "load-properties",
+                                     FALSE, NULL);
 }
 
 /* XXX: SUSPICIOUS: playerctl.syms exports pctl_*, so these internal helpers
