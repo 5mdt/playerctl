@@ -365,3 +365,73 @@ async def test_playback_status_missing_at_startup_is_not_playing(
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ['False']
+
+
+# Shape of Spotify 1.2.95 (flatpak, checked 2026-11): a string track id, an
+# unsigned `mpris:length` and a cache that is filled by GetAll
+SPOTIFY_TRACK = {
+    'mpris:trackid': Variant('s', '/com/spotify/track/2sFepQNyl1WjpROruP8bJ0'),
+    'mpris:length': Variant('t', 208810000),
+    'xesam:title': Variant('s', 'Housewife'),
+    'xesam:artist': Variant('as', ['Tate McRae']),
+}
+SPOTIFY_TRACK_ID = '/com/spotify/track/2sFepQNyl1WjpROruP8bJ0'
+
+
+async def test_current_spotify_metadata_types(playerctl, mpris_factory):
+    [mpris] = await mpris_factory('spotify')
+    mpris.metadata = SPOTIFY_TRACK
+
+    cmd = await playerctl.run(
+        "-p spotify metadata --format '{{duration(mpris:length)}} "
+        "{{mpris:trackid}}'"
+    )
+
+    assert cmd.returncode == 0, cmd.stderr
+    assert cmd.stdout == f'3:28 {SPOTIFY_TRACK_ID}'
+
+
+async def test_current_spotify_position_uses_the_string_track_id(
+    playerctl, mpris_factory
+):
+    [mpris] = await mpris_factory('spotify')
+    mpris.metadata = SPOTIFY_TRACK
+
+    cmd = await playerctl.run('-p spotify position 10')
+
+    assert cmd.returncode == 0, cmd.stderr
+    assert mpris.set_position_called_with == (SPOTIFY_TRACK_ID, 10000000)
+
+
+async def test_current_spotify_track_change_is_announced(
+    gi_start, mpris_factory
+):
+    [mpris] = await mpris_factory('spotify')
+    proc = await gi_start("""
+        player = Playerctl.Player.new('spotify')
+        player.connect('metadata', lambda p, m: out('metadata', p.get_title()))
+        run_loop()
+    """)
+
+    await mpris.send_properties_changed(
+        {'Metadata': Variant('a{sv}', SPOTIFY_TRACK)}
+    )
+
+    assert await proc.queue.get() == 'metadata Housewife'
+
+
+async def test_metadata_is_fetched_directly_without_load_properties(
+    gi_run, mpris_factory
+):
+    [mpris] = await mpris_factory('spotify')
+    mpris.metadata = SPOTIFY_TRACK
+
+    result = await gi_run("""
+        player = Playerctl.Player(player_name='spotify', load_properties=False)
+        out(player.get_title(), player.get_artist())
+        player.set_position(5)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'Housewife Tate McRae'
+    assert mpris.set_position_called_with == (SPOTIFY_TRACK_ID, 5)

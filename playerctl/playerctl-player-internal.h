@@ -53,7 +53,7 @@ struct _PlayerctlPlayerPrivate
 /* playerctl-player.c */
 GVariant *properties_get_reply_value (GVariant *reply);
 GVariant *player_properties_get_sync (PlayerctlPlayer *self, const gchar *name,
-                                     GError **error);
+                                      GError **error);
 gchar *metadata_get_track_id (GVariant *metadata);
 GVariant *playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err);
 gboolean player_propagate_init_error (PlayerctlPlayer *self, GError **err);

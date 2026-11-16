@@ -24,6 +24,7 @@ Current MPRIS spec differs a bit from vendored in repo, so the main goal of this
 - Library: `PlayerctlPlayer` created without a source defaults to `PLAYERCTL_SOURCE_NONE` (the same value as before), and the documentation of `playerctl_player_print_metadata_prop()` describes what it returns
 
 ### Maint
+- Spotify: the `Metadata` fallback (`Properties.Get` when the property cache lacks it) and its debug message no longer blame Spotify. Spotify 1.2.95 (flatpak) fills the cache and sends `PropertiesChanged` and `Seeked`, but still sends `mpris:trackid` as a string and `mpris:length` as an unsigned integer, so those two fallbacks stay. A test now covers a player of that shape, with and without `load-properties`
 - Code audit follow-up: the review comments (`XXX`) of the C sources are fixed where the fix does not change behaviour, the other ones stay in place for a decision. The output, the exit codes, the D-Bus signals and the public API are unchanged
 - The MPRIS and playerctld interface names, `MPRIS_PATH` and `LENGTH()` are defined once in `playerctl-common.h`; `calloc()`, `free()` and the deprecated `g_slice_*` calls are replaced by `g_new0()`, `g_new()` and `g_free()`, so an allocation failure aborts instead of crashing on a NULL pointer. `PlayerctlPlayerName` is allocated with `g_new()`: code outside the tree must free it with `g_free()`
 - `strcasecmp()` is replaced by `g_ascii_strcasecmp()`, `strtok()` by `g_strsplit()`, and a `g_error_matches()` test replaces the match of an error by its message in `playerctld`

@@ -215,7 +215,8 @@ helperfn_duration (struct token *token, GVariant **args, int nargs,
   else if (g_variant_type_equal (g_variant_get_type (value),
                                  G_VARIANT_TYPE_UINT64))
     {
-      // XXX: spotify may give uint64
+      // Spotify sends mpris:length as uint64 (checked on 1.2.95, 2026-11),
+      // so this branch is required
       guint64 unsigned_duration = g_variant_get_uint64 (value);
       if (unsigned_duration > G_MAXINT64)
         {

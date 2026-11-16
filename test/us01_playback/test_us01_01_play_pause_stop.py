@@ -6,7 +6,9 @@ import pytest
 from ..helpers.mpris import was_called
 
 
-@pytest.mark.parametrize('command', ['play', 'pause', 'play-pause', 'stop', 'next', 'previous'])
+@pytest.mark.parametrize(
+    'command', ['play', 'pause', 'play-pause', 'stop', 'next', 'previous']
+)
 async def test_command_reaches_player(command, playerctl, mpris_factory):
     [mpris] = await mpris_factory('commands')
 

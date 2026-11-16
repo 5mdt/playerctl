@@ -22,6 +22,6 @@ async def test_help_commands_are_documented(playerctl):
     usage = (DOC / 'usage.md').read_text()
     for command in commands:
         assert f'.It Cm {command}' in manual, f'{command} missing in manpage'
-        assert re.search(
-            rf'\*\*`{re.escape(command)}[ `]', usage
-        ), f'{command} missing in usage.md'
+        assert re.search(rf'\*\*`{re.escape(command)}[ `]', usage), (
+            f'{command} missing in usage.md'
+        )

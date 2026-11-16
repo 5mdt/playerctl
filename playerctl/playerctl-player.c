@@ -161,7 +161,7 @@ metadata_get_track_id (GVariant *metadata)
     {
       // XXX some players set this as a string, which is against the protocol,
       // but a lot of them do it and I don't feel like fixing it on all the
-      // players in the world.
+      // players in the world. Spotify 1.2.95 still does (checked 2026-11).
       g_debug ("mpris:trackid is a string, not a D-Bus object reference");
       track_id_variant = g_variant_lookup_value (metadata, "mpris:trackid",
                                                  G_VARIANT_TYPE_STRING);
@@ -408,9 +408,11 @@ playerctl_player_get_metadata (PlayerctlPlayer *self, GError **err)
 
   if (!metadata)
     {
-      // XXX: Ugly spotify workaround. Spotify does not seem to use the
-      // property cache. We have to get the properties directly.
-      g_debug ("Spotify does not use the D-Bus property cache, getting "
+      // Metadata is not in the property cache: the proxy was created without
+      // load-properties, or the player did not answer GetAll. Old Spotify
+      // versions were the known case; 1.2.95 fills the cache. Fetch the
+      // property directly.
+      g_debug ("Metadata is not in the D-Bus property cache, getting "
                "properties directly");
       metadata = player_properties_get_sync (self, "Metadata", &tmp_error);
 
@@ -1375,13 +1377,11 @@ playerctl_player_new_from_name (PlayerctlPlayerName *player_name, GError **err)
 // Like playerctl_player_new_from_name() but without loading the properties,
 // for commands that read what they need with Properties.Get.
 PlayerctlPlayer *
-pctl_player_new_from_name_lazy (PlayerctlPlayerName *player_name,
-                                GError **err)
+pctl_player_new_from_name_lazy (PlayerctlPlayerName *player_name, GError **err)
 {
-  return player_new_with_properties (err, "player-instance",
-                                     player_name->instance, "source",
-                                     player_name->source, "load-properties",
-                                     FALSE, NULL);
+  return player_new_with_properties (
+      err, "player-instance", player_name->instance, "source",
+      player_name->source, "load-properties", FALSE, NULL);
 }
 
 /* XXX: SUSPICIOUS: playerctl.syms exports pctl_*, so these internal helpers
