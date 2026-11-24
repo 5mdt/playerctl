@@ -345,7 +345,7 @@ $ playerctl metadata --format '{{playerName}}: {{lc(status)}} '\e
 .Pp
 .Lk https://github.com/5mdt/playerctl "playerctl homepage" ,
 .Lk https://5mdt.github.io/playerctl/ "playerctl API documentation" ,
-.Lk https://wiki.gnome.org/Projects/GObjectIntrospection/Users \
+.Lk https://gi.readthedocs.io/en/latest/users.html \
     "GObject introspection language bindings"
 .Sh AUTHORS
 .An -nosplit

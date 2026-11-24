@@ -39,11 +39,11 @@ guix install playerctl
 
 ## Compile from source
 
-Using the cli and library requires [GLib](https://developer.gnome.org/glib/) (which is a dependency of almost all of these players as well, so you probably already have it). You can use the library in almost any programming language with the associated [introspection binding library](https://wiki.gnome.org/Projects/GObjectIntrospection/Users).
+Using the cli and library requires [GLib](https://developer.gnome.org/glib/) (which is a dependency of almost all of these players as well, so you probably already have it). You can use the library in almost any programming language with the associated [introspection binding library](https://gi.readthedocs.io/en/latest/users.html).
 
 Additionally, you also need the following build dependencies:
 
-[gobject-introspection](https://wiki.gnome.org/Projects/GObjectIntrospection) for building introspection data (configurable with the `introspection` meson option)
+[gobject-introspection](https://gi.readthedocs.io/) for building introspection data (configurable with the `introspection` meson option)
 
 [gtk-doc](https://gitlab.gnome.org/GNOME/gtk-doc) for building documentation (configurable with the `gtk-doc` meson option)
 
