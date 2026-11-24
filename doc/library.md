@@ -1,8 +1,8 @@
 # Using the Library
 
-To use a scripting library, find your favorite language from [this list](https://wiki.gnome.org/Projects/GObjectIntrospection/Users) and install the bindings library. The generated [API documentation](https://5mdt.github.io/playerctl/) describes every class and signal.
+To use a scripting library, find your favorite language from [this list](https://gi.readthedocs.io/en/latest/users.html) and install the bindings library. The generated [API documentation](https://5mdt.github.io/playerctl/) describes every class and signal.
 
-Playerctl provides an [introspectable](https://wiki.gnome.org/Projects/GObjectIntrospection) library available in your favorite scripting language that allows detailed control, like subscribing to media player events or getting metadata such as artist and title for the playing track.
+Playerctl provides an [introspectable](https://gi.readthedocs.io/) library available in your favorite scripting language that allows detailed control, like subscribing to media player events or getting metadata such as artist and title for the playing track.
 
 ## Slow Players
 
